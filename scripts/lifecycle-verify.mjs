@@ -429,6 +429,9 @@ check('captain-planning activation requires a staged user-reviewed graph',
     && buildActivationDirective('ship it', 'dynamic-delivery', 'captain').includes('review the Web plan')
     && buildActivationDirective('ship it', 'dynamic-delivery', 'captain').includes('run in parallel')
     && !buildActivationDirective('ship it', 'dynamic-delivery', 'captain').includes('seed tasks'))
+check('activation directive dispatches a running team follow-up in the same turn',
+  buildActivationDirective('draw the SVG').includes('call agent_teams_create_task in this same turn')
+    && buildActivationDirective('draw the SVG').includes('do not create a replacement team or wait for another turn'))
 const unknownProfile = command.handler({
   agent: captain, rawInput: '--profile missing 做X', signal: new AbortController().signal, commandId: 'cmd-unknown',
 })
