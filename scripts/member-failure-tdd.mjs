@@ -1,4 +1,4 @@
-/** Terminal member failures, composed with Harness's actual retry plugin. */
+/** Final member interruptions, composed with Harness's actual retry plugin. */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -139,7 +139,7 @@ async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = f
   }
   settleOnCleanup = settleSilently
   return {
-    stateRoot, steers, deliveries, warnings, listeners, child, sessionEvents, memberError, payload, settleSilently,
+    workspace, stateRoot, scheduler, captain, steers, deliveries, warnings, listeners, child, sessionEvents, memberError, payload, settleSilently,
     state: () => readTeam(stateRoot, 'team'),
     mailbox: () => readMailbox(stateRoot, 'team', 'captain'),
     unread: () => readUnreadMailbox(stateRoot, 'team', 'captain'),
@@ -193,8 +193,8 @@ for (const captainStatus of ['idle', 'running']) {
     await appendMailbox(h.stateRoot, 'team', 'worker', createMessage('captain', 'worker', 'status please'))
     h.terminal()
     h.terminal()
-    await eventually(async () => (await h.state()).tasks[0].status === 'failed' && h.steers.length === 1 && h.deliveries.length === 1)
-    assert.equal((await h.state()).tasks[0].attemptId, 'a1')
+    await eventually(async () => (await h.state()).tasks[0].status === 'blocked' && h.steers.length === 1 && h.deliveries.length === 1)
+    assert.equal((await h.state()).tasks[0].attemptId, undefined)
     assert.match((await h.state()).tasks[0].output, /STREAM_CLOSED/)
     assert.equal((await h.state()).members[0].status, 'idle')
     assert.match(JSON.stringify(h.steers[0]), /t1/)
@@ -211,7 +211,7 @@ await test('report a final error immediately but do not dispatch while the drive
   const h = await fixture(t)
   await appendMailbox(h.stateRoot, 'team', 'worker', createMessage('captain', 'worker', 'status please'))
   h.terminal({ settle: false })
-  await eventually(async () => (await h.state()).tasks[0].status === 'failed' && h.steers.length === 1)
+  await eventually(async () => (await h.state()).tasks[0].status === 'blocked' && h.steers.length === 1)
   assert.equal(h.child.status, 'running')
   assert.equal((await h.state()).members[0].status, 'working')
   assert.equal(h.deliveries.length, 0)
@@ -225,7 +225,7 @@ for (const options of [{ captainOffline: true }, { rejectDelivery: true }]) {
     const h = await fixture(t, options)
     h.terminal()
     await eventually(async () => (await h.unread()).length === 1)
-    assert.equal((await h.state()).tasks[0].status, 'failed')
+    assert.equal((await h.state()).tasks[0].status, 'blocked')
     assert.equal(h.steers.length, 0)
   })
 }
@@ -251,4 +251,20 @@ await test('a queued error cannot fail a newer attempt created before it gets th
   assert.equal((await h.state()).tasks[0].status, 'in_progress')
   assert.equal((await h.state()).tasks[0].attemptId, 'a2')
   assert.equal((await h.mailbox()).length, 0)
+})
+
+await test('blocked work waits for captain activation, then receives a fresh attempt', async t => {
+  const h = await fixture(t)
+  h.terminal()
+  await eventually(async () => (await h.state()).tasks[0].status === 'blocked' && (await h.state()).members[0].status === 'idle')
+  await h.scheduler.kickTeam(h.workspace, 'team', h.captain)
+  assert.equal((await h.state()).tasks[0].status, 'blocked')
+  assert.equal(h.deliveries.length, 0)
+  await h.scheduler.kickTeam(h.workspace, 'team', h.captain, { resumeBlocked: true })
+  const resumed = (await h.state()).tasks[0]
+  assert.equal(resumed.status, 'claimed')
+  assert.equal(resumed.attempt, 2)
+  assert.notEqual(resumed.attemptId, 'a1')
+  assert.equal(resumed.output, undefined)
+  assert.equal(h.deliveries.length, 1)
 })

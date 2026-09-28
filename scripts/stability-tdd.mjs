@@ -25,7 +25,7 @@ async function fixture(t) {
 
 await test('work, empty, staged, halted and escalated teams cannot falsely declare delivery', () => {
   const state = team()
-  for (const status of ['pending', 'claimed', 'in_progress', 'failed']) {
+  for (const status of ['pending', 'claimed', 'in_progress', 'blocked', 'failed']) {
     state.tasks[0].status = status
     assert.equal(canDeclareDelivery(state).ok, false, status)
   }

@@ -1472,16 +1472,16 @@ try {
   const bridgeState = () => readTeamStable('failure-bridge')
   const bridgeTask = async () => (await bridgeState())?.tasks.find(candidate => candidate.id === flakeTask.task_id)
   for (let waited = 0; waited < 2000; waited += 20) {
-    if ((await bridgeTask())?.status === 'failed' && captain.steers.length > captainSteersBeforeFailure
+    if ((await bridgeTask())?.status === 'blocked' && captain.steers.length > captainSteersBeforeFailure
       && deliveries.length === deliveriesBeforeFailure
       && (await readUnreadMailbox(stateRoot, 'failure-bridge', 'flake')).length === 0) break
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   const stalledFlake = (await bridgeState())?.members.find(member => member.name === 'flake')
   const captainMail = await readMailboxStable('failure-bridge', 'captain')
-  check('turn failure fails the open attempt, releases the member, and owns no retry',
+  check('turn failure blocks the open attempt, releases the member, and owns no retry',
     failureAction === undefined
-      && (await bridgeTask())?.status === 'failed'
+      && (await bridgeTask())?.status === 'blocked'
       && (await bridgeTask())?.output?.includes('STREAM_CLOSED') === true
       && stalledFlake?.status === 'idle')
   check('turn failure notifies the captain mailbox with the error code',
@@ -1491,10 +1491,10 @@ try {
       && captainMail.at(-1)?.content.includes('STREAM_CLOSED') === true
       && captainMail.at(-1)?.content.includes(flakeTask.task_id)
       && captainSteersBeforeFailure + 1 === captain.steers.length)
-  check('settled member discards failed-attempt guidance without another model turn',
+  check('settled member discards interrupted-attempt guidance without another model turn',
     deliveries.length === deliveriesBeforeFailure
       && (await readUnreadMailbox(stateRoot, 'failure-bridge', 'flake')).length === 0
-      && (await bridgeTask())?.status === 'failed')
+      && (await bridgeTask())?.status === 'blocked')
   await call('agent_teams_delete', {})
 
   const batchPlan = { members: [{ name: 'worker' }, { name: 'verifier' }], tasks: [

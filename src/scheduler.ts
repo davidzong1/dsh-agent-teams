@@ -48,7 +48,7 @@ export interface SchedulerConfig {
 
 export interface TeamScheduler {
   /** Try to give every genuinely idle/ready member one unit of ready work. */
-  kickTeam(workspace: string, teamId: string, captain?: Agent): Promise<void>
+  kickTeam(workspace: string, teamId: string, captain?: Agent, options?: { resumeBlocked?: boolean; resumeBlockedRetryable?: boolean }): Promise<void>
   /** Try to flush fallback mail or give one member one ready task. */
   kickMember(workspace: string, teamId: string, memberName: string, captain?: Agent): Promise<void>
 }
@@ -204,6 +204,21 @@ function nextReadyTask(tasks: readonly TeamTask[], memberName: string): TeamTask
     ?? ready.find(task => task.assignee === undefined)
 }
 
+/** Return interrupted attempts to the ready pool on an explicit captain turn. */
+async function reopenBlockedTasks(stateRoot: string, teamId: string, retryableOnly = false): Promise<void> {
+  await withTeamLock(teamLockKey(stateRoot, teamId), async () => {
+    const team = await readTeam(stateRoot, teamId)
+    if (team === undefined || team.halted === true || team.phase === 'staged') return
+    let changed = false
+    for (const task of team.tasks) {
+      if (task.status !== 'blocked' || (retryableOnly && task.blockedRetryable !== true)) continue
+      invalidateTaskAttempt(task, task.assignee)
+      changed = true
+    }
+    if (changed) await writeTeam(stateRoot, team)
+  })
+}
+
 export function assignmentPrompt(ticket: DispatchTicket, stateDir: string, teamId: string): string {
   const description = ticket.description === undefined ? '' : `\n\n${ticket.description}`
   const seed = ticket.profileSeedId === undefined ? '' : ` [${ticket.profileSeedId}]`
@@ -250,7 +265,7 @@ ${structuredCompletion}
 Attempt: ${ticket.attempt}
 Attempt id: ${ticket.attemptId}
 
-Call agent_teams_claim_task for ${ticket.taskId}; it will return this same attempt_id. Include attempt_id=${ticket.attemptId} in every agent_teams_update_task call. If it is rejected as stale, stop work because the task was reassigned. claimed cannot jump to completed. Mark in_progress first, then completed or failed. Include attempt_id on every update. Then send_message to captain with source_task_id and source_attempt_id and become idle.
+Call agent_teams_claim_task for ${ticket.taskId}; it will return this same attempt_id. Include attempt_id=${ticket.attemptId} in every agent_teams_update_task call. If it is rejected as stale, stop work because the task was reassigned or resumed after an interruption. claimed cannot jump to completed. Mark in_progress first, then completed or failed. Include attempt_id on every update. Then send_message to captain with source_task_id and source_attempt_id and become idle.
 When finishing: use status=completed only when the task's success criteria are satisfied; use status=failed when blocking findings or validation failures mean downstream work must not proceed; include a concise output in either case. Quality kinds must submit structured fields: review/requirements need verdict=pass to complete (needs_revision/reject must fail with findings); implementation/repair/verification/integration need acceptanceResults and commandsRun, while implementation/repair also need in-scope changedPaths. Use status values "passed" or "failed" inside those arrays. After the work and verification finish, call agent_teams_update_task immediately; do not wait for captain confirmation and do not continue exploring. Do not approve your own implementation. Mail is not a formal next review. Completed work must not be repeated to attach late evidence: call update_task on the original task with its attempt_id and acceptanceResults/commandsRun/evidence_note; supplements are append-only and cannot change its verdict. Treat the dependency results above as source material. Do not ignore them. Work only this task and only its in-scope paths in this turn.
 
 State policy: ${stateDir}/${teamId}/ is read-only diagnostics; mutate team state only through agent_teams_* tools.`
@@ -265,6 +280,31 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
   // graph kicks must keep it parked. A cold process starts with an empty map,
   // so durable open attempts are still recovered after restart.
   const parkedAttempts = new Map<string, string>()
+  const blockedRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const blockedRetryKey = (stateRoot: string, teamId: string, memberName: string): string => `${stateRoot}\u0000${teamId}\u0000${memberName}`
+  const scheduleBlockedRetry = (workspace: string, teamId: string, memberName: string, captain: Agent): void => {
+    const stateRoot = stateRootOf(workspace, config)
+    const key = blockedRetryKey(stateRoot, teamId, memberName)
+    if (blockedRetryTimers.has(key)) return
+    const timer = setTimeout(() => {
+      blockedRetryTimers.delete(key)
+      void (async () => {
+        try {
+          await runtime.kickTeam(workspace, teamId, captain, { resumeBlockedRetryable: true })
+          const after = await readTeam(stateRoot, teamId)
+          const task = after?.tasks.find((candidate) => candidate.assignee === memberName
+            && (candidate.status === 'pending' || candidate.status === 'blocked'))
+          if (task !== undefined) scheduleBlockedRetry(workspace, teamId, memberName, captain)
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent-teams: timed blocked-task recovery failed: ${String(error)}`)
+          scheduleBlockedRetry(workspace, teamId, memberName, captain)
+        }
+      })()
+    }, 60_000)
+    const unref = (timer as unknown as { unref?: () => void }).unref
+    unref?.()
+    blockedRetryTimers.set(key, timer)
+  }
 
   const memberQueueKey = (stateRoot: string, teamId: string, memberName: string): string => (
     `${stateRoot}\u0000${teamId}\u0000${memberName}`
@@ -286,8 +326,18 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
   }
 
   const runtime: TeamScheduler = {
-    async kickTeam(workspace, teamId, suppliedCaptain) {
+    async kickTeam(workspace, teamId, suppliedCaptain, options) {
       const stateRoot = stateRootOf(workspace, config)
+      if (options?.resumeBlocked === true) await reopenBlockedTasks(stateRoot, teamId)
+      else if (options?.resumeBlockedRetryable === true) await reopenBlockedTasks(stateRoot, teamId, true)
+      if (options?.resumeBlocked === true || options?.resumeBlockedRetryable === true) {
+        for (const [key, timer] of blockedRetryTimers) {
+          if (key.startsWith(`${stateRoot}\u0000${teamId}\u0000`)) {
+            clearTimeout(timer)
+            blockedRetryTimers.delete(key)
+          }
+        }
+      }
       const team = await readTeam(stateRoot, teamId)
       if (team === undefined || team.halted === true || team.phase === 'staged') return
       const captain = liveCaptain(ctx, team.captainSessionId, suppliedCaptain)
@@ -308,6 +358,11 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
         if (captain === undefined) return
         let member = team.members.find(candidate => candidate.name === memberName && candidate.status !== 'removed')
         if (member === undefined || !isMemberAvailable(ctx, member)) return
+        const blocked = team.tasks.find((task) => task.assignee === memberName && task.status === 'blocked')
+        if (blocked !== undefined) {
+          if (blocked.blockedRetryable === true) scheduleBlockedRetry(workspace, teamId, memberName, captain)
+          return
+        }
 
         // A mailbox-only fallback is real pending work. Deliver it before a
         // fresh task and acknowledge only after Harness accepts the follow-up.

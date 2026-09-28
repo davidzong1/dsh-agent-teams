@@ -123,7 +123,7 @@ function memberIsRunning(
 ): boolean {
   if (member.activity === 'working' || member.status === 'working') return true
   return tasks.some((task) => task.assignee === member.name
-    && (task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress'))
+    && (task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress' || task.status === 'blocked'))
 }
 
 /**
@@ -170,7 +170,7 @@ export function teamIsActive(team: {
 }): boolean {
   if (team.halted === true || team.phase === 'staged') return false
   if (team.members.some((member) => member.activity === 'working' || member.status === 'working')) return true
-  if (team.tasks.some((task) => task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress')) return true
+  if (team.tasks.some((task) => task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress' || task.status === 'blocked')) return true
   return team.members.length > 0 && team.tasks.length === 0
 }
 

@@ -120,6 +120,17 @@ export async function validateMemberLlmSelections(
 const MEMBER_LABEL_PREFIX = 'agent-teams:'
 const FALLBACK_FAILURE_CODES = new Set(['QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER'])
 
+const NETWORK_FAILURE_CODES = new Set([
+  'RATE_LIMIT', 'QUOTA', 'TIMEOUT', 'NETWORK', 'NETWORK_ERROR', 'STREAM_CLOSED',
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+])
+
+export function isNetworkFailureCode(code: string, message = ''): boolean {
+  const normalized = code.trim().toUpperCase()
+  return NETWORK_FAILURE_CODES.has(normalized)
+    || /(?:\b429\b|rate[ -]?limit|请求数限制|network|timeout|timed out|连接|网络)/iu.test(`${code} ${message}`)
+}
+
 export function isFallbackFailureCode(code: string): boolean {
   return FALLBACK_FAILURE_CODES.has(code)
 }
@@ -156,7 +167,7 @@ interface FailedMemberAttempt {
   readonly task?: Pick<TeamTask, 'id' | 'attempt' | 'attemptId'>
 }
 
-/** Record a final turn failure, never an intermediate request retry. */
+/** Park a final interrupted turn; only explicit task updates can fail work. */
 export async function failMemberOpenAttempt(
   ctx: Context,
   stateRoot: string,
@@ -182,15 +193,19 @@ export async function failMemberOpenAttempt(
       || task?.attempt !== observed.task?.attempt) return
     if (task === undefined && member.status !== 'working') return
     if (task !== undefined) {
-      task.status = 'failed'
+      task.status = 'blocked'
+      task.attemptId = undefined
+      task.handoffId = undefined
+      task.reassigning = false
       task.output = summary
+      task.blockedRetryable = isNetworkFailureCode(failure.code, failure.message)
       task.updatedAt = Date.now()
     }
     if (ctx.agents.get(brandedSessionId(member.id))?.status !== 'running') member.status = 'idle'
     const message = {
       ...createMessage(memberName, CAPTAIN_KEY, task === undefined
-        ? `Member "${memberName}" hit an unrecoverable turn failure: ${summary}. No open attempt was owned.`
-        : `Member "${memberName}" hit an unrecoverable turn failure: ${summary}. Task ${task.id} ("${task.subject}") was marked failed; reassign it or retry when ready.`),
+        ? `Member "${memberName}" was interrupted: ${summary}. No open attempt was owned.`
+        : `Member "${memberName}" was interrupted: ${summary}. Task ${task.id} ("${task.subject}") is blocked and can resume on your next activation or user message.`),
       deliveryClaimedAt: Date.now(),
     }
     await writeTeam(stateRoot, team)
@@ -426,7 +441,7 @@ export function installMemberSelectionRuntime(
         if (!recorded) return
         // The final-error event precedes driver quiescence. Observe the real
         // lifecycle and kick explicitly even if its idle event was missed.
-        // Never force an active Agent's status to idle or retry the failed task.
+        // Never force an active Agent's status to idle or retry a blocked task.
         await child.whenIdle()
         await withTeamLock(`team:${stateRoot}:${teamId}`, async () => {
           const team = await readTeam(stateRoot, teamId)

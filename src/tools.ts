@@ -435,6 +435,18 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
     scheduler.kickMember(workspace, teamId, memberName)
   ))
 
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next()
+    if (decision.kind !== 'enter' || !decision.messages.some((message) => message.source?.kind === 'user' || message.source?.kind === 'agent-teams-command')) return decision
+    const captain = payload.agent
+    const workspace = workspaceOf(captain)
+    const team = await findTeamByCaptain(stateRootOf(workspace, config), captain.id)
+    if (team !== undefined && team.halted !== true && team.phase !== 'staged') {
+      await scheduler.kickTeam(workspace, team.id, captain, { resumeBlocked: true })
+    }
+    return decision
+  })
+
   async function dispatchMember(captain: Agent, teamId: string, memberName: string, text: string, signal: AbortSignal, mode: 'queue' | 'steer', attemptId?: string): Promise<boolean> {
     const root = stateRootOf(workspaceOf(captain), config)
     // Record why a member never started. The scheduler treats a failed dispatch as
@@ -1715,6 +1727,9 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
             ...task.output !== undefined ? { output: task.output } : {},
           }
         }
+        if (task.status === 'blocked') {
+          throw new Error(`task ${task.id} is blocked after an interrupted turn; wait for captain activation or reassignment`)
+        }
         if (args.evidence_note?.trim()) throw new Error('evidence_note is for terminal tasks; record active work with output and structured evidence')
         // Blank optional list entries (e.g. changedPaths:[""]) must not be
         // persisted: hasValidQualityTaskFields rejects them on reload and
@@ -2032,7 +2047,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       const stateRoot = stateRootOf(workspace, config)
       const located = await requireParticipantTeam(workspace, config, caller)
       if (located.captainSessionId === caller.id) {
-        await scheduler.kickTeam(workspace, located.id, caller)
+        await scheduler.kickTeam(workspace, located.id, caller, { resumeBlocked: true })
       }
       const { team, identity } = await withTeamLock(
         teamLockKey(stateRoot, located.id),

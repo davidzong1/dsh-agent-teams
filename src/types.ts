@@ -13,6 +13,7 @@ export type TaskStatus =
   | 'pending'
   | 'claimed'
   | 'in_progress'
+  | 'blocked'
   | 'completed'
   | 'failed'
   | 'cancelled'
@@ -126,8 +127,10 @@ export interface TeamTask {
   assignee?: string
   /** Task ids that must reach `completed` before this task can be claimed. */
   dependencies: string[]
-  /** The worker's written result, set when the task completes or fails. */
+  /** The worker's result, or the reason an interrupted attempt is blocked. */
   output?: string
+  /** Whether an interrupted attempt may be retried by the background recovery timer. */
+  blockedRetryable?: boolean
   /** Monotonic execution generation. Reassignment/retry invalidates every older attempt. */
   attempt?: number
   /** Capability for the current claimed/in-progress attempt. Members must present it when updating. */

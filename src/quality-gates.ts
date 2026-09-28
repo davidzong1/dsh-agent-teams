@@ -33,7 +33,7 @@ const QUALITY_KINDS: readonly TaskKind[] = [
 ]
 
 const WRITE_KINDS: readonly TaskKind[] = ['implementation', 'repair']
-const OPEN_STATUSES: readonly TaskStatus[] = ['pending', 'claimed', 'in_progress']
+const OPEN_STATUSES: readonly TaskStatus[] = ['pending', 'claimed', 'in_progress', 'blocked']
 const DEFAULT_REVIEW_POLICY: Required<Pick<
   ReviewPolicy,
   'requirementsMinRounds' | 'requirementsMaxRounds' | 'codeMaxRounds' | 'maxRepairAttempts'
@@ -454,6 +454,7 @@ const STATUS_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = 
   pending: ['claimed', 'cancelled'],
   claimed: ['in_progress', 'failed', 'cancelled'],
   in_progress: ['completed', 'failed', 'cancelled'],
+  blocked: ['pending', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: [],
@@ -714,7 +715,7 @@ export function amendTaskContract(
 
 
 const CAPTAIN_ASSIGNEE = 'captain'
-const OPEN_FOLLOW_UP_STATUSES: readonly TaskStatus[] = ['pending', 'claimed', 'in_progress']
+const OPEN_FOLLOW_UP_STATUSES: readonly TaskStatus[] = ['pending', 'claimed', 'in_progress', 'blocked']
 
 function schedulableAssignee(preferred: string | undefined, team: TeamState, forbidden?: string): string | undefined {
   if (preferred !== undefined && preferred !== CAPTAIN_ASSIGNEE && preferred !== forbidden) {
@@ -873,7 +874,7 @@ export function canDeclareDelivery(team: TeamState): DeliveryResult {
         ? quality.some((candidate) => (
           taskKindOf(candidate) === 'repair'
           && candidate.sourceTaskId === (item.reviewedTaskId ?? item.sourceTaskId)
-          && (candidate.status === 'pending' || candidate.status === 'claimed' || candidate.status === 'in_progress' || candidate.status === 'completed')
+          && (candidate.status === 'pending' || candidate.status === 'claimed' || candidate.status === 'in_progress' || candidate.status === 'blocked' || candidate.status === 'completed')
         ))
         : kind === 'requirements'
           ? quality.some((candidate) => (
@@ -1173,7 +1174,7 @@ export function describeQualityLoop(team: TeamState): QualityLoopSnapshot {
       summary: 'Automatic review/repair loop hit its ceiling. The team is still running; do not treat this as halt. Escalate to the user instead of inventing another needs_revision cycle.',
     }
   }
-  const open = team.tasks.some((item) => OPEN_STATUSES.includes(item.status))
+  const open = team.tasks.some((item) => item.status === 'pending' || item.status === 'claimed' || item.status === 'in_progress')
   return {
     state: open ? 'running' : 'blocked',
     halted: false,
@@ -1181,6 +1182,8 @@ export function describeQualityLoop(team: TeamState): QualityLoopSnapshot {
     deliverable: false,
     summary: open
       ? 'Work remains on the shared task list; wait for the scheduler or complete owned tasks.'
+      : team.tasks.some((item) => item.status === 'blocked')
+        ? 'Member work was interrupted. A user message or captain activation can resume blocked tasks.'
       : `Delivery is blocked: ${delivery.blockers.join('; ') || 'unresolved quality gates'}.`,
   }
 }

@@ -148,6 +148,7 @@ const TASK_STATUS_LABEL: Record<string, AgentTeamsLocaleKey> = {
   pending: 'task.status.pending',
   claimed: 'task.status.claimed',
   in_progress: 'task.status.inProgress',
+  blocked: 'task.status.blocked',
   completed: 'task.status.completed',
   failed: 'task.status.failed',
   cancelled: 'task.status.cancelled',
@@ -243,6 +244,7 @@ function memberStatusText(
       : t('member.status.executingModel', { taskId: current.id, model })
   }
   if (member.activity === 'working') return t('member.status.working')
+  if (blocked?.status === 'blocked') return t('member.status.interrupted')
   if (blocked !== undefined) {
     const dependency = tasks.find((task) => blocked.dependencies.includes(task.id) && task.state !== 'completed')
     if (dependency !== undefined) {
@@ -286,6 +288,9 @@ function taskSummary(team: ActivityTeam, t: AgentTeamsTranslate, discarded = fal
   }
   if (failed.length > 0 && running.length === 0 && ready.length === 0 && blocked.length === 0) {
     return t('task.summary.failedSettled', { count: failed.length })
+  }
+  if (blocked.some((task) => task.status === 'blocked') && running.length === 0) {
+    return t('task.summary.interrupted', { tasks: formatTaskIds(blocked.filter((task) => task.status === 'blocked').map((task) => task.id), t) })
   }
   if (blocked.length > 0 && running.length > 0) {
     return t('task.summary.blockedAndRunning', {
@@ -463,6 +468,8 @@ function DependencyMap({ tasks, members, t, discarded = false, workspace = false
                   ? t('task.detail.cancelled')
                 : detailTask.status === 'failed'
                   ? t('task.detail.failed')
+                : detailTask.status === 'blocked'
+                  ? t('task.detail.interrupted')
                 : detailTask.dependencies.length === 0
                 ? t('task.detail.noPrerequisite')
                 : waitingOn.length === 0
@@ -626,7 +633,7 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
           const runningMembers = orderedMembers.filter((member) => (
             member.activity === 'working' || member.status === 'working'
             || team.tasks.some((task) => task.assignee === member.name
-              && (task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress'))
+              && (task.status === 'pending' || task.status === 'claimed' || task.status === 'in_progress' || task.status === 'blocked'))
           ))
           const visibleMembers = membersOpen ? orderedMembers : runningMembers
           const hiddenFinishedCount = orderedMembers.length - visibleMembers.length

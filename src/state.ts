@@ -145,6 +145,7 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]
   pending: ['claimed', 'cancelled'],
   claimed: ['in_progress', 'failed', 'cancelled'],
   in_progress: ['completed', 'failed', 'cancelled'],
+  blocked: ['pending', 'cancelled'],
   completed: [],
   failed: [],
   cancelled: [],
@@ -172,6 +173,7 @@ function clearAttemptResult(task: TeamTask): void {
   task.changedPaths = undefined
   task.acceptanceResults = undefined
   task.commandsRun = undefined
+  task.blockedRetryable = undefined
 }
 
 /** Activate the task's current generation for one owner and return its capability id. */
@@ -814,6 +816,7 @@ export function isTeamTask(value: unknown): value is TeamTask {
     && (value['status'] === 'pending'
       || value['status'] === 'claimed'
       || value['status'] === 'in_progress'
+      || value['status'] === 'blocked'
       || value['status'] === 'completed'
       || value['status'] === 'failed'
       || value['status'] === 'cancelled')
@@ -821,6 +824,7 @@ export function isTeamTask(value: unknown): value is TeamTask {
     && Array.isArray(value['dependencies'])
     && value['dependencies'].every((dependency) => typeof dependency === 'string')
     && isOptionalString(value['output'])
+    && (value['blockedRetryable'] === undefined || typeof value['blockedRetryable'] === 'boolean')
     && (value['attempt'] === undefined
       || (Number.isSafeInteger(value['attempt']) && (value['attempt'] as number) >= 0))
     && isOptionalString(value['attemptId'])
@@ -897,7 +901,7 @@ function isTeamMessage(value: unknown): value is TeamMessage {
     && (value['attemptId'] === undefined || typeof value['attemptId'] === 'string')
     && (value['sourceTaskId'] === undefined || typeof value['sourceTaskId'] === 'string')
     && (value['sourceAttemptId'] === undefined || typeof value['sourceAttemptId'] === 'string')
-    && (value['sourceTaskStatus'] === undefined || ['pending', 'claimed', 'in_progress', 'completed', 'failed', 'cancelled'].includes(value['sourceTaskStatus'] as string))
+    && (value['sourceTaskStatus'] === undefined || ['pending', 'claimed', 'in_progress', 'blocked', 'completed', 'failed', 'cancelled'].includes(value['sourceTaskStatus'] as string))
 }
 
 /**
@@ -1031,6 +1035,7 @@ export function taskVisualState(
   if (status === 'completed') return 'completed'
   if (status === 'failed') return 'failed'
   if (status === 'cancelled') return 'cancelled'
+  if (status === 'blocked') return 'blocked'
   if (status === 'in_progress') return 'running'
   const byId = new Map(tasks.map((task) => [task.id, task]))
   const openDependency = dependencies.some((dependencyId) => {
