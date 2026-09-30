@@ -30,7 +30,7 @@ Ask in natural language. The plugin provides the team protocol, 14 coordination 
 
 ## Releases
 
-[v0.1.22-rc.1](./release-notes/v0.1.22-rc.1.md) prepares for Harness desktop 0.2.0 and fixes Git installation by shipping prebuilt entries. This preview uses npm `next`; the recommended host is Harness `0.1.7-rc.2` (its `next` channel). See the exact [support matrix](./compatibility.json).
+[v0.1.22](./release-notes/v0.1.22.md) targets the published Harness `0.2.0-rc.2` packages and retains script-free Git installation. This plugin release uses npm `latest`; the recommended host is Harness `0.2.0-rc.2` (its `next` channel). See the exact [support matrix](./compatibility.json).
 
 ## Why AgentTeams?
 
@@ -49,32 +49,33 @@ The conversation card and activity panel use Harness's official locale service. 
 
 ## Install and choose versions
 
-**Recommended pair: DeepSeek Harness `0.1.7-rc.2` + AgentTeams `0.1.22-rc.1`. Both packages are prereleases.**
+**Recommended pair: DeepSeek Harness `0.2.0-rc.2` + AgentTeams `0.1.22`. The host remains an RC.**
 
 | Use case | DeepSeek Harness | AgentTeams plugin |
 | --- | --- | --- |
-| **Recommended** | **`0.1.7-rc.2`** | **`0.1.22-rc.1`** |
-| Legacy RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.1.22-rc.1` |
-| Retaining an older RC | `0.1.2-rc.1` | `0.1.22-rc.1` |
-| Developer Alpha testing | `0.1.2-alpha.5` | `0.1.22-rc.1` |
-| Retaining an older Alpha | `0.1.2-alpha.2` | `0.1.22-rc.1` |
+| **Recommended** | **`0.2.0-rc.2`** | **`0.1.22`** |
+| Previous recommended RC | `0.1.7-rc.2` | `0.1.22` |
+| Legacy RC | `0.1.5-rc.1`, `0.1.5-rc.2`, `0.1.5-rc.3` | `0.1.22` |
+| Retaining an older RC | `0.1.2-rc.1` | `0.1.22` |
+| Developer Alpha testing | `0.1.2-alpha.5` | `0.1.22` |
+| Retaining an older Alpha | `0.1.2-alpha.2` | `0.1.22` |
 
 ### Desktop app
 
 In the app sidebar, open **Plugins → Add plugin** and enter the npm package spec:
 
 ```text
-@nanmicoder/dsh-agent-teams@0.1.22-rc.1
+@nanmicoder/dsh-agent-teams@0.1.22
 ```
 
 Install it, then choose **Enable now**. If the host asks for a restart, restart the desktop app. Use the package spec above for the published build; an npm or GitHub webpage URL is not the same install source. For Git installation, use a commit containing the verified build outputs described below.
 
-The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and replacing `--profile web` with `--profile desktop` in a CLI command does not install into the app. Check the embedded core against the compatibility list. The upcoming `0.2.0` desktop release is being pre-adapted against source commit `21638c56315ae6a2b552d6091945d3144c9af32e`; it is recorded separately as a source candidate, not in the published-host support matrix above. See the [0.2.0 pre-adaptation scope and evidence](./docs/harness-0.2.0-pre-adaptation/README.md).
+The desktop app supplies its own Harness core and package manager. Upgrading the global CLI does not upgrade that core, and an ordinary standalone CLI cannot manage its desktop profile. The CLI carrier installed by the desktop app can manage that profile in `0.2.0-rc.2`. Check the embedded core against the compatibility list. Harness `0.2.0-rc.2` is now the exact published target; its RC status is unchanged. The earlier source-only `0.2.0` prediction is no longer a support declaration. See the [release migration evidence](./docs/harness-0.2.0-rc.2/README.md).
 
 ### CLI / Web: 1. Install DeepSeek Harness
 
 ```sh
-npm install --global @deepseek-ai/dsh@0.1.7-rc.2
+npm install --global @deepseek-ai/dsh@0.2.0-rc.2
 dsh --version
 ```
 
@@ -82,10 +83,10 @@ Skip this if you already run this version. Alpha is opt-in: select an exact Alph
 
 ### CLI / Web: 2. Install the AgentTeams plugin
 
-Install or upgrade from npm (pinned to this `next` preview):
+Install or upgrade from npm (pinned to this `latest` release):
 
 ```sh
-dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.1.22-rc.1
+dsh plugin --profile web add --save-exact @nanmicoder/dsh-agent-teams@0.1.22
 ```
 
 For a CLI-managed installation, replace `web` with your active CLI profile. **Stop and restart that profile's Harness process, then refresh the browser.** Installing the plugin does not upgrade Harness; the host and plugin have independent `latest` channels.

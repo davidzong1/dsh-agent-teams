@@ -8,33 +8,36 @@ import test from 'node:test'
 import { inspectInstallation } from './doctor.mjs'
 import { policy, workspacePolicy, requiredHostPeers, validatePolicy, validatePackageCompatibility, declaredHostVersions } from './compatibility.mjs'
 
+const sourcePolicy = { ...policy, sourceCandidates: [{ version: '0.2.0', repository: 'https://github.com/deepseek-ai/deepseek-harness', commit: '21638c56315ae6a2b552d6091945d3144c9af32e', evidence: 'docs/harness-0.2.0-pre-adaptation/README.md' }] }
+
 test('source candidates pass the peer gate without entering the published download matrix', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.ok(declaredHostVersions().includes('0.2.0'))
-  assert.ok(!validatePackageCompatibility(pkg).includes('0.2.0'))
+  for (const name of Object.keys(pkg.peerDependencies)) if (name.startsWith('@deepseek-ai/dsh-')) pkg.peerDependencies[name] += ' || 0.2.0'
+  assert.ok(declaredHostVersions(sourcePolicy).includes('0.2.0'))
+  assert.ok(!validatePackageCompatibility(pkg, sourcePolicy).includes('0.2.0'))
   const matrix = spawnSync(process.execPath, [fileURLToPath(new URL('./compatibility.mjs', import.meta.url)), '--github-output'], { encoding: 'utf8' })
   assert.equal(matrix.status, 0, matrix.stderr)
   assert.ok(!JSON.parse(matrix.stdout.trim().slice('hosts='.length)).includes('0.2.0'))
   for (const sourceCandidates of [
-    [...policy.sourceCandidates, policy.sourceCandidates[0]],
-    [{ ...policy.sourceCandidates[0], version: '^0.2.0' }],
-    [{ ...policy.sourceCandidates[0], version: '0.2.0\n' }],
-    [{ ...policy.sourceCandidates[0], commit: 'master' }],
-    [{ ...policy.sourceCandidates[0], version: policy.recommendedHost }],
+    [...sourcePolicy.sourceCandidates, sourcePolicy.sourceCandidates[0]],
+    [{ ...sourcePolicy.sourceCandidates[0], version: '^0.2.0' }],
+    [{ ...sourcePolicy.sourceCandidates[0], version: '0.2.0\n' }],
+    [{ ...sourcePolicy.sourceCandidates[0], commit: 'master' }],
+    [{ ...sourcePolicy.sourceCandidates[0], version: policy.recommendedHost }],
   ]) assert.throws(() => validatePolicy({ ...policy, sourceCandidates }), /Source candidates/)
   pkg.peerDependencies['@deepseek-ai/dsh-agent'] = pkg.peerDependencies['@deepseek-ai/dsh-agent'].replace(' || 0.2.0', '')
-  assert.throws(() => validatePackageCompatibility(pkg), /source candidates/)
+  assert.throws(() => validatePackageCompatibility(pkg, sourcePolicy), /source candidates/)
 })
 
 test('doctor distinguishes source-preview acceptance from released host validation', t => {
   const root = mkdtempSync(join(tmpdir(), 'agent-teams-doctor-source-'))
   t.after(() => rmSync(root, { recursive: true, force: true }))
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@deepseek-ai/dsh', version: '0.2.0' }))
-  const result = inspectInstallation(root)
+  const result = inspectInstallation(root, undefined, sourcePolicy)
   assert.equal(result.ok, true)
   assert.equal(result.validation.kind, 'source-preview')
   assert.equal(result.validation.sourceCommitVerified, false)
-  assert.equal(result.validation.commit, policy.sourceCandidates[0].commit)
+  assert.equal(result.validation.commit, sourcePolicy.sourceCandidates[0].commit)
   assert.ok(!result.supportedHosts.includes('0.2.0'))
   assert.match(result.limits.join(), /does not verify that the installed release matches/)
 })
@@ -174,4 +177,10 @@ test('doctor detects peer-only drift and a mismatched installed plugin', t => {
   const profile = join(root, 'profile')
   write(join(profile, 'node_modules/@nanmicoder/dsh-agent-teams'), { name: '@nanmicoder/dsh-agent-teams', version: '0.1.15' })
   assert.match(inspectInstallation(root, profile).problems.join(), /0\.1\.15/)
+})
+
+test('released target enters the download matrix and replaces the old source prediction', () => {
+  assert.equal(policy.recommendedHost, '0.2.0-rc.2')
+  assert.ok(validatePolicy(policy).includes('0.2.0-rc.2'))
+  assert.ok(!declaredHostVersions().includes('0.2.0'))
 })
