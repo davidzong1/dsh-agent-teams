@@ -1,11 +1,15 @@
 {
   "schemaVersion": 1,
-  "recommendedHost": "0.1.7-rc.2",
+  "recommendedHost": "0.2.0-rc.2",
   "previewTag": "next",
   "supportedHosts": [
     {
-      "version": "0.1.7-rc.2",
+      "version": "0.2.0-rc.2",
       "track": "recommended"
+    },
+    {
+      "version": "0.1.7-rc.2",
+      "track": "legacy"
     },
     {
       "version": "0.1.5-rc.3",
@@ -30,14 +34,6 @@
     {
       "version": "0.1.2-alpha.2",
       "track": "legacy"
-    }
-  ],
-  "sourceCandidates": [
-    {
-      "version": "0.2.0",
-      "repository": "https://github.com/deepseek-ai/deepseek-harness",
-      "commit": "21638c56315ae6a2b552d6091945d3144c9af32e",
-      "evidence": "docs/harness-0.2.0-pre-adaptation/README.md"
     }
   ]
 }
