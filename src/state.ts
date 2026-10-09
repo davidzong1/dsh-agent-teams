@@ -738,6 +738,7 @@ function isTeamMember(value: unknown): value is TeamMember {
     && (value['fallback'] === undefined || (isRecord(value['fallback']) && typeof value['fallback']['provider'] === 'string' && typeof value['fallback']['model'] === 'string'))
     && (value['emergencyFallback'] === undefined || (isRecord(value['emergencyFallback']) && typeof value['emergencyFallback']['provider'] === 'string' && value['emergencyFallback']['provider'].trim() !== '' && typeof value['emergencyFallback']['model'] === 'string' && value['emergencyFallback']['model'].trim() !== ''))
     && (value['fallbackActive'] === undefined || typeof value['fallbackActive'] === 'boolean')
+    && (value['fullAccess'] === undefined || value['fullAccess'] === true)
     && isFiniteNumber(value['joinedAt'])
     && (value['status'] === 'idle' || value['status'] === 'working' || value['status'] === 'removed')
 }

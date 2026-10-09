@@ -3,6 +3,7 @@
 export declare const AGENT_TEAMS_LOCALE_NAMESPACE = "agentTeams";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
+    'member.fullAccess': string;
     'emergency.title': string;
     'emergency.active': string;
     'emergency.help': string;
@@ -232,6 +233,7 @@ export declare const zh: {
 export type AgentTeamsLocaleKey = keyof typeof zh;
 /** English dictionary, checked complete against the Chinese source key set. */
 export declare const en: {
+    'member.fullAccess': string;
     'emergency.title': string;
     'emergency.active': string;
     'emergency.help': string;

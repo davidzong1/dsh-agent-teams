@@ -125,6 +125,69 @@ export const EPHEMERAL_FILE_BATCH_LABEL = 'agent-teams-batch:'
 const EPHEMERAL_FILE_TOOLS = ['read', 'write', 'edit'] as const
 
 /** A member start that may pass the depth gate: one-shot, depth 0, file tools only. */
+const FULL_ACCESS_PRESET = 'danger-full-access'
+const DEFAULT_ACCESS_PRESET = 'workspace-write'
+
+/** Whether this session's effective preset is already full file access. */
+export function captainHasFullAccess(ctx: Context, session: Session): boolean {
+  const presets = ctx.get('permissionPresets') as { current(session: Session): string } | undefined
+  return presets?.current(session) === FULL_ACCESS_PRESET
+}
+
+/**
+ * Let a captain who is not on full access ask the user before granting it.
+ * A captain already on danger-full-access proceeds without a prompt.
+ */
+export async function confirmMemberFullAccess(
+  ctx: Context,
+  captain: Agent,
+  memberName: string,
+  callId: string | undefined,
+  signal: AbortSignal,
+): Promise<void> {
+  if (captainHasFullAccess(ctx, captain.session)) return
+  const approval = ctx.get('approval') as {
+    request(req: {
+      agent: Agent
+      toolName: string
+      callId?: string
+      reason?: string
+      displayReason?: { readonly en: string; readonly zh: string }
+      signal?: AbortSignal
+    }): Promise<string>
+  } | undefined
+  if (approval === undefined) {
+    throw new Error('agent-teams: approval is not mounted, so full access can be granted only when the captain is already on danger-full-access')
+  }
+  const outcome = await approval.request({
+    agent: captain,
+    toolName: 'agent_teams_set_member_access',
+    ...callId === undefined ? {} : { callId },
+    reason: `Grant member "${memberName}" full file access while the captain is not on danger-full-access`,
+    displayReason: {
+      en: `The captain is not on full access. Allow member "${memberName}" to receive full file access?`,
+      zh: `队长当前不是完全权限。是否允许把成员「${memberName}」提到完全权限？`,
+    },
+    signal,
+  })
+  if (outcome !== 'allowed-once') {
+    throw new Error(`the user did not allow full access for member "${memberName}" (${outcome})`)
+  }
+}
+
+/**
+ * Apply the captain's durable access choice to one member session.
+ * Full access is the host `danger-full-access` preset. Default restores
+ * `workspace-write`.
+ */
+export function applyMemberAccess(ctx: Context, session: Session, fullAccess: boolean): void {
+  const presets = ctx.get('permissionPresets') as { set(session: Session, name: string): void } | undefined
+  if (presets === undefined) {
+    throw new Error('agent-teams: permission presets are not mounted, so member access cannot be changed')
+  }
+  presets.set(session, fullAccess ? FULL_ACCESS_PRESET : DEFAULT_ACCESS_PRESET)
+}
+
 export function isEphemeralFileBatchRequest(request: {
   label?: string
   maxDepth?: number
@@ -389,6 +452,11 @@ export function installMemberSelectionRuntime(
     const memberName = identity.slice(separator + 1)
     const workspace = child.session.header.cwd ?? process.cwd()
     const stateRoot = join(workspace, stateDir)
+    const recorded = readTeamSync(stateRoot, teamId)
+    const recordedMember = recorded?.captainSessionId === parentSessionId
+      ? recorded.members.find(member => member.name === memberName && member.status !== 'removed')
+      : undefined
+    if (recordedMember?.fullAccess === true) applyMemberAccess(ctx, child.session, true)
     const key = pendingSelectionKey(parentSessionId, descriptor.label)
     // Internal settlement wakeups bypass the public delivery guard. Recheck
     // exact durable membership on every proposed step, including cold resume.

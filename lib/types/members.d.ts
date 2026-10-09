@@ -77,7 +77,19 @@ export interface MemberSelectionRuntime {
 export declare function validateMemberLlmSelections(ctx: Context, selections: readonly MemberLlmSelection[], signal?: AbortSignal): Promise<void>;
 /** One-shot file workers. This prefix never marks a continuable team member. */
 export declare const EPHEMERAL_FILE_BATCH_LABEL = "agent-teams-batch:";
-/** A member start that may pass the depth gate: one-shot, depth 0, file tools only. */
+/** Whether this session's effective preset is already full file access. */
+export declare function captainHasFullAccess(ctx: Context, session: Session): boolean;
+/**
+ * Let a captain who is not on full access ask the user before granting it.
+ * A captain already on danger-full-access proceeds without a prompt.
+ */
+export declare function confirmMemberFullAccess(ctx: Context, captain: Agent, memberName: string, callId: string | undefined, signal: AbortSignal): Promise<void>;
+/**
+ * Apply the captain's durable access choice to one member session.
+ * Full access is the host `danger-full-access` preset. Default restores
+ * `workspace-write`.
+ */
+export declare function applyMemberAccess(ctx: Context, session: Session, fullAccess: boolean): void;
 export declare function isEphemeralFileBatchRequest(request: {
     label?: string;
     maxDepth?: number;

@@ -680,6 +680,7 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
                     <span className={css.memberLine}>
                       <span className={css.memberName}>{member.name}</span>
                       {member.role !== '' && <span className={css.memberRole}>{member.role}</span>}
+                      {member.fullAccess === true && <span className={css.memberRole}>{t('member.fullAccess')}</span>}
                       {/* Inline member model badge: compact visible label, full route in
                           title/aria-label (accessible tooltip) and the data-member-model
                           DOM probe; noninteractive span, no tab stop. */}

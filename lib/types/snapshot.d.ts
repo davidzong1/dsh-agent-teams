@@ -23,6 +23,7 @@ export interface TeamActivityMember {
         readonly model: string;
     };
     readonly fallbackActive?: boolean;
+    readonly fullAccess?: boolean;
     readonly reasoningEffort: string;
     readonly executionPrompt: string;
     readonly status: MemberStatus;

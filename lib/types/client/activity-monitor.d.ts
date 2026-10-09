@@ -11,6 +11,7 @@ export interface ActivityMember {
         readonly model: string;
     };
     readonly fallbackActive?: boolean;
+    readonly fullAccess?: boolean;
     readonly reasoningEffort?: string;
     readonly executionPrompt?: string;
     readonly status?: 'idle' | 'working' | 'removed';

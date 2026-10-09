@@ -5,6 +5,7 @@ export const AGENT_TEAMS_LOCALE_NAMESPACE = 'agentTeams'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'member.fullAccess': '完全权限',
   'emergency.title': '成员应急模型',
   'emergency.active': '已切换备用路由',
   'emergency.help': '额度不足时自动切换并重试，保留成员会话。已失败的任务仍需队长重试。',
@@ -238,6 +239,7 @@ export type AgentTeamsLocaleKey = keyof typeof zh
 
 /** English dictionary, checked complete against the Chinese source key set. */
 export const en = {
+  'member.fullAccess': 'Full access',
   'emergency.title': 'Member emergency model',
   'emergency.active': 'Fallback route active',
   'emergency.help': 'Automatically switch and retry on quota exhaustion, keeping the member session. Failed tasks still require a captain retry.',

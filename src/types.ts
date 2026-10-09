@@ -200,6 +200,11 @@ export interface TeamMember {
   activeModel?: string
   /** Whether the fallback route is currently active. */
   fallbackActive?: boolean
+  /**
+   * Captain-granted full file access (`danger-full-access`). Absent means the
+   * member keeps the normal workspace-write delegation.
+   */
+  fullAccess?: boolean
   joinedAt: number
   status: MemberStatus
   /** Execution admission is closed while a failed/pending handoff is drained. */
