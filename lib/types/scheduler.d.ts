@@ -25,7 +25,10 @@ export interface SchedulerConfig {
 }
 export interface TeamScheduler {
     /** Try to give every genuinely idle/ready member one unit of ready work. */
-    kickTeam(workspace: string, teamId: string, captain?: Agent): Promise<void>;
+    kickTeam(workspace: string, teamId: string, captain?: Agent, options?: {
+        resumeBlocked?: boolean;
+        resumeBlockedRetryable?: boolean;
+    }): Promise<void>;
     /** Try to flush fallback mail or give one member one ready task. */
     kickMember(workspace: string, teamId: string, memberName: string, captain?: Agent): Promise<void>;
 }

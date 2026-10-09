@@ -41,7 +41,7 @@ check('prompt is present in assignment', assignment.includes(prompt))
 check('prompt is present in persona', persona.includes(prompt))
 check('assignment does not require process disclosure', !assignment.includes('record the process') || assignment.includes(prompt))
 
-const allowed = ['QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER']
+const allowed = ['QUOTA', 'ACCOUNT_QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER']
 const denied = ['CONTEXT_WINDOW_EXCEEDED', 'INVALID_CREDENTIAL', 'INVALID_ARGS', 'TASK_FAILED']
 for (const code of allowed) check(`fallback whitelist includes ${code}`, isFallbackFailureCode(code))
 for (const code of denied) check(`fallback whitelist excludes ${code}`, !isFallbackFailureCode(code))
@@ -53,6 +53,7 @@ const repeated = selectFallbackRoute(switched.selection, backup, 'RATE_LIMIT', t
 check('fallback switches at most once', !repeated.retry && repeated.selection.model === 'backup')
 const ignored = selectFallbackRoute(primary, backup, 'CONTEXT_WINDOW_EXCEEDED', false)
 check('non-eligible failure keeps primary route', !ignored.retry && ignored.selection.model === 'primary')
+check('same-route fallback cannot create a retry loop', !selectFallbackRoute(primary, primary, 'QUOTA', false).retry)
 
 if (failures > 0) process.exitCode = 1
 else console.log('fallback TDD checks passed')

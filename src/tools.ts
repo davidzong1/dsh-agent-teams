@@ -74,6 +74,8 @@ import { TERMINAL_TASK_STATUSES, type TeamMember, type TeamState, type TeamTask 
 import { collectCompletedDependencyOutputs, formatDependencyOutputs, installTeamScheduler } from './scheduler.ts'
 import { installMailboxAdmission, isCurrentMail, mailboxContent, mailboxPrompt, readCurrentMailbox } from './mailbox.ts'
 import { resolveTeamProfile } from './profiles.ts'
+import { normalizeFileBatch, runEphemeralFileBatch } from './batch-files.ts'
+import type { FileBatchItem } from './batch-files.ts'
 
 export { steerCaptainReport } from './members.ts'
 
@@ -2220,6 +2222,65 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       })
       if (result.status === 'resumed') await scheduler.kickTeam(workspace, team.id, captain)
       return result
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'agent_teams_batch_files',
+    description: 'Member-only temporary file batch. Starts one disposable subagent per file for a read, a full-file write, or a text summary, waits for each result, then releases the worker. These workers are not team members and cannot be continued. Do not use this to add members or create a durable subagent.',
+    parameters: {
+      files: {
+        type: 'array',
+        required: true,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true, description: 'Workspace file path for this worker.' },
+            operation: { type: 'string', enum: ['read', 'write', 'summarize'], required: true, description: 'read returns file text, summarize returns a short text summary, write replaces the file.' },
+            instruction: { type: 'string', required: true, description: 'What this one file worker should do, then stop.' },
+            content: { type: 'string', description: 'Full replacement text. Required when operation is write.' },
+          },
+        },
+        description: 'Up to 8 independent files. Workers run a few at a time and exit when finished.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          workers: { type: 'number', required: true },
+          results: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                path: { type: 'string', required: true },
+                operation: { type: 'string', required: true },
+                stop_reason: { type: 'string', required: true },
+                output: { type: 'string', required: true },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) => [{
+        type: 'text',
+        text: value.results.map(item => `${item.path} (${item.operation}, ${item.stop_reason})\n${item.output}`).join('\n\n'),
+      }],
+    },
+    async execute(args, exec) {
+      const caller = requireCaptain(exec)
+      const workspace = workspaceOf(caller)
+      const team = await requireParticipantTeam(workspace, config, caller)
+      const { identity } = await requireFreshParticipant(stateRootOf(workspace, config), team.id, caller.id)
+      if (identity.kind !== 'member') throw new Error('agent_teams_batch_files is only for a team member. It starts temporary file workers, not durable subagents or new members.')
+      const files = normalizeFileBatch((args.files ?? []) as FileBatchItem[])
+      const results = await runEphemeralFileBatch(ctx, config.memberProvider, caller, team.id, identity.name, files, exec.signal)
+      return { workers: results.length, results }
     },
   }))
 

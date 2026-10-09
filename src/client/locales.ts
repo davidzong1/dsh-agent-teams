@@ -5,6 +5,17 @@ export const AGENT_TEAMS_LOCALE_NAMESPACE = 'agentTeams'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  'emergency.title': '成员应急模型',
+  'emergency.active': '已切换备用路由',
+  'emergency.help': '额度不足时自动切换并重试，保留成员会话。已失败的任务仍需队长重试。',
+  'emergency.current': '当前路由',
+  'emergency.backup': '额度不足备用模型',
+  'emergency.none': '未配置',
+  'emergency.save': '保存',
+  'emergency.clear': '清除',
+  'emergency.saved': '配置已保存，下次额度不足时生效。',
+  'emergency.cleared': '应急模型配置已清除。',
+
   'workspace.dependencies': '从左到右：完成前置后解锁 · 点击查看详情',
   'workspace.title': '团队协作',
   'workspace.guide': '查看成员分工、任务依赖与执行进度',
@@ -227,6 +238,17 @@ export type AgentTeamsLocaleKey = keyof typeof zh
 
 /** English dictionary, checked complete against the Chinese source key set. */
 export const en = {
+  'emergency.title': 'Member emergency model',
+  'emergency.active': 'Fallback route active',
+  'emergency.help': 'Automatically switch and retry on quota exhaustion, keeping the member session. Failed tasks still require a captain retry.',
+  'emergency.current': 'Active route',
+  'emergency.backup': 'Quota fallback model',
+  'emergency.none': 'Not configured',
+  'emergency.save': 'Save',
+  'emergency.clear': 'Clear',
+  'emergency.saved': 'Configuration saved for the next quota failure.',
+  'emergency.cleared': 'Emergency model configuration cleared.',
+
   'workspace.dependencies': 'Left to right: prerequisites unlock tasks · Select for details',
   'workspace.title': 'Team workspace',
   'workspace.guide': 'Members, task dependencies, and execution progress',

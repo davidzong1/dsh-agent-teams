@@ -193,6 +193,8 @@ export interface TeamMember {
   executionPrompt?: string
   /** Configured second-choice route. */
   fallback?: TeamModelFallback
+  /** Member-specific emergency route, used only on token/account quota exhaustion. */
+  emergencyFallback?: TeamModelFallback
   /** Active route after fallback, without changing the primary descriptor route. */
   activeProvider?: string
   activeModel?: string

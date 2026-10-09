@@ -39,7 +39,7 @@ ctx.provide('credentials', {
 ctx.provide('webServer', webServer)
 let gate
 let calls = 0
-const paths = ['/plugins/dsh-agent-teams/state', '/plugins/dsh-agent-teams/plan']
+const paths = ['/plugins/dsh-agent-teams/state', '/plugins/dsh-agent-teams/plan', '/plugins/dsh-agent-teams/member-emergency']
 const routePlugin = {
   name: 'agent-teams-auth-test',
   apply(owner) {
@@ -75,7 +75,7 @@ try {
   const fiber = ctx.plugin(routePlugin)
   await fiber.inertia
   for (const path of paths) {
-    const response = await fetch(base + path, { method: path.endsWith('/plan') ? 'POST' : 'GET' })
+    const response = await fetch(base + path, { method: path.endsWith('/state') ? 'GET' : 'POST' })
     assert.equal(response.status, 401)
     assert.equal(response.headers.get('cache-control'), 'no-store')
     assert.deepEqual(await response.json(), { error: 'unauthorized' })
@@ -88,12 +88,12 @@ try {
   assert(cookie, 'real Connection must issue a browser cookie')
   for (const path of paths) {
     const response = await fetch(base + path, {
-      method: path.endsWith('/plan') ? 'POST' : 'GET', headers: { cookie, origin: base },
+      method: path.endsWith('/state') ? 'GET' : 'POST', headers: { cookie, origin: base },
     })
     assert.equal(response.status, 200)
     assert.deepEqual(await response.json(), { ok: true })
   }
-  assert.equal(calls, 2)
+  assert.equal(calls, paths.length)
   const unauthenticatedUpload = await fetch(base + paths[1], { method: 'POST', body: 'x'.repeat(65) })
   assert.equal(unauthenticatedUpload.status, 401, 'authentication runs before parsing request bodies')
   await unauthenticatedUpload.arrayBuffer()
@@ -102,7 +102,7 @@ try {
   })
   assert.equal(oversized.status, 413, 'authorized oversized requests fail before mutating team state')
   await oversized.arrayBuffer()
-  assert.equal(calls, 2)
+  assert.equal(calls, paths.length)
   for (const headers of [
     { cookie, origin: 'https://untrusted.invalid' },
     { cookie, 'sec-fetch-site': 'cross-site' },
@@ -119,13 +119,13 @@ try {
     })
     assert.equal(status, 403, `reject ${Object.keys(headers).filter(key => key !== 'cookie').join(', ')}`)
   }
-  assert.equal(calls, 2, 'rejected origins must not enter the mutation handler')
+  assert.equal(calls, paths.length, 'rejected origins must not enter the mutation handler')
 
   gate = undefined
   const unavailable = await fetch(base + paths[0], { headers: { cookie } })
   assert.equal(unavailable.status, 503)
   await unavailable.arrayBuffer()
-  assert.equal(calls, 2, 'missing Connection must fail closed')
+  assert.equal(calls, paths.length, 'missing Connection must fail closed')
 
   await fiber.dispose()
   assert(paths.every(path => !routes.has(path)), 'unload removes every owned route')

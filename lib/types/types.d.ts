@@ -8,7 +8,7 @@
  * @module dsh-agent-teams/types
  */
 /** Task lifecycle statuses in progression order. */
-export type TaskStatus = 'pending' | 'claimed' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'pending' | 'claimed' | 'in_progress' | 'blocked' | 'completed' | 'failed' | 'cancelled';
 /** Statuses after which a task can no longer be claimed or worked on. */
 export declare const TERMINAL_TASK_STATUSES: readonly TaskStatus[];
 /** Structured quality-gate kind. Absent / unknown values are treated as `work`. */
@@ -90,8 +90,10 @@ export interface TeamTask {
     assignee?: string;
     /** Task ids that must reach `completed` before this task can be claimed. */
     dependencies: string[];
-    /** The worker's written result, set when the task completes or fails. */
+    /** The worker's result, or the reason an interrupted attempt is blocked. */
     output?: string;
+    /** Whether an interrupted attempt may be retried by the background recovery timer. */
+    blockedRetryable?: boolean;
     /** Monotonic execution generation. Reassignment/retry invalidates every older attempt. */
     attempt?: number;
     /** Capability for the current claimed/in-progress attempt. Members must present it when updating. */
@@ -152,6 +154,8 @@ export interface TeamMember {
     executionPrompt?: string;
     /** Configured second-choice route. */
     fallback?: TeamModelFallback;
+    /** Member-specific emergency route, used only on token/account quota exhaustion. */
+    emergencyFallback?: TeamModelFallback;
     /** Active route after fallback, without changing the primary descriptor route. */
     activeProvider?: string;
     activeModel?: string;

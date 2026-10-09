@@ -7,6 +7,8 @@ export interface ActivityMember {
   readonly role: string
   readonly provider?: string
   readonly model?: string
+  readonly emergencyFallback?: { readonly provider: string; readonly model: string }
+  readonly fallbackActive?: boolean
   readonly reasoningEffort?: string
   readonly executionPrompt?: string
   readonly status?: 'idle' | 'working' | 'removed'

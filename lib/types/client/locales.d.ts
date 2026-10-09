@@ -3,6 +3,16 @@
 export declare const AGENT_TEAMS_LOCALE_NAMESPACE = "agentTeams";
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export declare const zh: {
+    'emergency.title': string;
+    'emergency.active': string;
+    'emergency.help': string;
+    'emergency.current': string;
+    'emergency.backup': string;
+    'emergency.none': string;
+    'emergency.save': string;
+    'emergency.clear': string;
+    'emergency.saved': string;
+    'emergency.cleared': string;
     'workspace.dependencies': string;
     'workspace.title': string;
     'workspace.guide': string;
@@ -46,6 +56,7 @@ export declare const zh: {
     'task.status.pending': string;
     'task.status.claimed': string;
     'task.status.inProgress': string;
+    'task.status.blocked': string;
     'task.status.completed': string;
     'task.status.failed': string;
     'task.status.cancelled': string;
@@ -85,12 +96,15 @@ export declare const zh: {
     'task.summary.running': string;
     'task.summary.ready': string;
     'task.summary.blocked': string;
+    'task.summary.interrupted': string;
     'task.summary.failedSettled': string;
     'task.summary.waitingSchedule': string;
     'progress.aria': string;
     'progress.title': string;
     'progress.running': string;
     'progress.blocked': string;
+    'member.status.interrupted': string;
+    'task.detail.interrupted': string;
     'progress.delivered': string;
     'dependency.aria': string;
     'dependency.parallel': string;
@@ -218,6 +232,16 @@ export declare const zh: {
 export type AgentTeamsLocaleKey = keyof typeof zh;
 /** English dictionary, checked complete against the Chinese source key set. */
 export declare const en: {
+    'emergency.title': string;
+    'emergency.active': string;
+    'emergency.help': string;
+    'emergency.current': string;
+    'emergency.backup': string;
+    'emergency.none': string;
+    'emergency.save': string;
+    'emergency.clear': string;
+    'emergency.saved': string;
+    'emergency.cleared': string;
     'workspace.dependencies': string;
     'workspace.title': string;
     'workspace.guide': string;
@@ -261,6 +285,7 @@ export declare const en: {
     'task.status.pending': string;
     'task.status.claimed': string;
     'task.status.inProgress': string;
+    'task.status.blocked': string;
     'task.status.completed': string;
     'task.status.failed': string;
     'task.status.cancelled': string;
@@ -300,12 +325,15 @@ export declare const en: {
     'task.summary.running': string;
     'task.summary.ready': string;
     'task.summary.blocked': string;
+    'task.summary.interrupted': string;
     'task.summary.failedSettled': string;
     'task.summary.waitingSchedule': string;
     'progress.aria': string;
     'progress.title': string;
     'progress.running': string;
     'progress.blocked': string;
+    'member.status.interrupted': string;
+    'task.detail.interrupted': string;
     'progress.delivered': string;
     'dependency.aria': string;
     'dependency.parallel': string;

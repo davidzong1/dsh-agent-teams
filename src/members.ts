@@ -118,7 +118,26 @@ export async function validateMemberLlmSelections(
 }
 
 const MEMBER_LABEL_PREFIX = 'agent-teams:'
-const FALLBACK_FAILURE_CODES = new Set(['QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER'])
+
+/** One-shot file workers. This prefix never marks a continuable team member. */
+export const EPHEMERAL_FILE_BATCH_LABEL = 'agent-teams-batch:'
+
+const EPHEMERAL_FILE_TOOLS = ['read', 'write', 'edit'] as const
+
+/** A member start that may pass the depth gate: one-shot, depth 0, file tools only. */
+export function isEphemeralFileBatchRequest(request: {
+  label?: string
+  maxDepth?: number
+  toolFilter?: { allow?: readonly string[] }
+}): boolean {
+  const allow = request.toolFilter?.allow
+  return request.maxDepth === 0
+    && request.label?.startsWith(EPHEMERAL_FILE_BATCH_LABEL) === true
+    && allow !== undefined
+    && allow.length > 0
+    && allow.every(name => (EPHEMERAL_FILE_TOOLS as readonly string[]).includes(name))
+}
+const FALLBACK_FAILURE_CODES = new Set(['QUOTA', 'ACCOUNT_QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER'])
 
 const NETWORK_FAILURE_CODES = new Set([
   'RATE_LIMIT', 'QUOTA', 'TIMEOUT', 'NETWORK', 'NETWORK_ERROR', 'STREAM_CLOSED',
@@ -142,7 +161,8 @@ export function selectFallbackRoute(
   failureCode: string,
   alreadySwitched: boolean,
 ): { retry: boolean; switched: boolean; selection: { provider: string; model: string } } {
-  if (alreadySwitched || fallback === undefined || !isFallbackFailureCode(failureCode)) {
+  if (alreadySwitched || fallback === undefined || !isFallbackFailureCode(failureCode)
+    || (fallback.provider === current.provider && fallback.model === current.model)) {
     return { retry: false, switched: alreadySwitched, selection: current }
   }
   return { retry: true, switched: true, selection: fallback }
@@ -236,25 +256,6 @@ export async function failMemberOpenAttempt(
   return true
 }
 
-async function updateFallbackState(
-  stateRoot: string,
-  teamId: string,
-  memberName: string,
-  fallback: { provider: string; model: string },
-  ctx: Context,
-): Promise<void> {
-  await withTeamLock(`team:${stateRoot}:${teamId}`, async () => {
-    const team = await readTeam(stateRoot, teamId)
-    if (team === undefined) return
-    const member = team.members.find(candidate => candidate.name === memberName)
-    if (member === undefined) return
-    member.activeProvider = fallback.provider
-    member.activeModel = fallback.model
-    member.fallbackActive = true
-    await writeTeam(stateRoot, team)
-  })
-  void ctx
-}
 
 function pendingSelectionKey(parentSessionId: string, label: string): string {
   return `${parentSessionId}\u0000${label}`
@@ -463,22 +464,39 @@ export function installMemberSelectionRuntime(
     const disposeSelection = installModelSelection(childCtx, selectionRef)
     const fallback = selection.fallback
     let switched = false
+    const attemptedEmergencyRoutes = new Set<string>()
     const disposeFallback = childCtx.on('agent/request-error', async (payload, next) => {
       if (payload.agent.id !== child.id || payload.signal.aborted) return next()
-      const transition = selectFallbackRoute(selectionRef.current ?? { provider: selection.provider, model: selection.model }, fallback, payload.failure.code, switched)
-      // selectFallbackRoute only retries when a fallback route exists; the
-      // explicit guard narrows that fact for the compiler.
-      if (fallback !== undefined && transition.retry) {
-        switched = transition.switched
+      const transition = await withTeamLock(`team:${stateRoot}:${teamId}`, async () => {
+        const team = await readTeam(stateRoot, teamId)
+        const member = team?.members.find(item => item.id === child.id && item.name === memberName
+          && item.status !== 'removed' && item.stopping !== true)
+        if (team?.captainSessionId !== parentSessionId || team.halted === true || member === undefined) return undefined
+        const current = selectionRef.current ?? selection
+        const emergency = member.emergencyFallback
+        const quota = ['QUOTA', 'ACCOUNT_QUOTA'].includes(payload.failure.code.trim().toUpperCase())
+        const emergencyKey = emergency === undefined ? '' : JSON.stringify([emergency.provider, emergency.model])
+        const useEmergency = quota && emergency !== undefined
+          && (emergency.provider !== current.provider || emergency.model !== current.model)
+          && !attemptedEmergencyRoutes.has(emergencyKey)
+        const result = useEmergency
+          ? { retry: true, switched: true, selection: emergency }
+          : selectFallbackRoute(current, fallback, payload.failure.code, switched)
+        if (!result.retry || payload.signal.aborted) return undefined
+        member.activeProvider = result.selection.provider
+        member.activeModel = result.selection.model
+        member.fallbackActive = true
+        // Persist before retry so cold recovery uses exactly the same route.
+        await writeTeam(stateRoot, team)
+        if (useEmergency) attemptedEmergencyRoutes.add(emergencyKey)
+        return result
+      })
+      if (transition !== undefined) {
+        switched = true
         selectionRef.current = transition.selection
-        // Request recovery repeats buildRequest inside the current step; it
-        // does not re-run prompt assembly. Override that captured route too,
-        // otherwise the authorized retry would hit the failed primary again.
+        // Request recovery rebuilds the request without repeating prompt assembly.
         selectionRef.assembled = transition.selection
-        await updateFallbackState(stateRoot, teamId, memberName, fallback, ctx).catch((error: unknown) => {
-          ctx.logger.warn(`agent-teams: failed to persist fallback route: ${String(error)}`)
-        })
-        ctx.logger.warn(`agent-teams: member ${child.id} switching to fallback ${fallback.provider}/${fallback.model} after ${payload.failure.code}`)
+        ctx.logger.warn(`agent-teams: member ${child.id} switching to fallback ${transition.selection.provider}/${transition.selection.model} after ${payload.failure.code}`)
         return { kind: 'retry' as const }
       }
       return next()
@@ -576,7 +594,7 @@ Working rules:
 6. After your turn becomes idle, the shared task scheduler may assign your next ready task automatically. Never claim a second task while you still own unfinished work.
 7. If you already own an open attempt (claimed or in_progress) and receive mail, treat it as guidance for that same attempt_id unless the mail explicitly tells you to stop or fail. Do not claim a new task in that turn.
 8. Do not start a teammate's assigned task. Do not privately tell the next-stage member to start; the scheduler assigns unlocked work after you become idle.
-9. You are a worker: do not create or delete teams, reassign tasks, or add/remove members — that is the captain's job.
+9. You are a worker: do not create or delete teams, reassign tasks, or add/remove members — that is the captain's job. Do not create a durable subagent. For a temporary batch of file reads, writes, or text summaries, call agent_teams_batch_files. Each worker exits when its file is done and is not a team member.
 10. Quality-gate kinds carry a contract (kind, objective, inScope, acceptance, verify). Stay inside inScope. Do not mark your own implementation as review pass. Review/requirements complete only with verdict=pass; needs_revision/reject must fail with findings. Mail is not a formal next review. Completed work must not be repeated to attach late evidence: call update_task on the original task with its attempt_id and acceptanceResults/commandsRun/evidence_note; supplements are append-only and cannot change its verdict.`
 }
 
@@ -746,19 +764,21 @@ export function installRetiredMemberGuard(ctx: Context, stateDir: string): void 
 export function installMemberDelegationGuard(ctx: Context, stateDir: string, maxDepth: number): void {
   const runtime = ctx.subagents
   let active = true
-  const check = (parent: Agent): void => {
+  const check = (parent: Agent, ephemeralFileBatch: boolean): void => {
     if (!active) return
     let ancestor: Agent | undefined = parent
     let depth = 1
     while (ancestor !== undefined) {
       const descriptor = foldSubagentDescriptor(sessionOwnEvents(ancestor.session))
-      if (descriptor?.label?.startsWith(MEMBER_LABEL_PREFIX)) {
+      if (descriptor?.label?.startsWith(EPHEMERAL_FILE_BATCH_LABEL)) {
+        // A file worker is not a member. Keep walking so its own start still hits the member budget.
+      } else if (descriptor?.label?.startsWith(MEMBER_LABEL_PREFIX)) {
         const identity = descriptor.label.slice(MEMBER_LABEL_PREFIX.length)
         const separator = identity.indexOf(':')
         const team = readTeamSync(join(ancestor.session.header.cwd ?? process.cwd(), stateDir), identity.slice(0, separator))
         const member = team?.members.find(item => item.id === ancestor!.id && item.name === identity.slice(separator + 1))
         if (member === undefined || member.status === 'removed' || member.stopping === true || team?.halted === true) throw new Error('AgentTeams member is no longer admitting delegated work')
-        if (depth > maxDepth) throw new Error(`AgentTeams member delegation limit (${maxDepth}) reached; report to the captain instead of spawning another agent`)
+        if (depth > maxDepth && !(ephemeralFileBatch && depth === 1)) throw new Error(`AgentTeams member delegation limit (${maxDepth}) reached; report to the captain instead of spawning another agent`)
         return
       }
       const parentId: SessionId | undefined = ancestor.session.header.parentSession
@@ -771,8 +791,11 @@ export function installMemberDelegationGuard(ctx: Context, stateDir: string, max
     const continuable = runtime.startContinuable
     const startDescriptor = Object.getOwnPropertyDescriptor(runtime, 'start')
     const continuableDescriptor = Object.getOwnPropertyDescriptor(runtime, 'startContinuable')
-    const guardedStart: typeof start = async (name, request) => { check(request.parent); return start.call(runtime, name, request) }
-    const guardedContinuable: typeof continuable = async spec => { check(spec.request.parent); return continuable.call(runtime, spec) }
+    const guardedStart: typeof start = async (name, request) => {
+      check(request.parent, isEphemeralFileBatchRequest(request))
+      return start.call(runtime, name, request)
+    }
+    const guardedContinuable: typeof continuable = async spec => { check(spec.request.parent, false); return continuable.call(runtime, spec) }
     runtime.start = guardedStart
     runtime.startContinuable = guardedContinuable
     return () => {

@@ -12,7 +12,12 @@ const sourcePolicy = { ...policy, sourceCandidates: [{ version: '0.2.0', reposit
 
 test('source candidates pass the peer gate without entering the published download matrix', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  for (const name of Object.keys(pkg.peerDependencies)) if (name.startsWith('@deepseek-ai/dsh-')) pkg.peerDependencies[name] += ' || 0.2.0'
+  const published = new Set(validatePolicy(policy))
+  for (const name of Object.keys(pkg.peerDependencies)) {
+    if (!name.startsWith('@deepseek-ai/dsh-')) continue
+    const declared = pkg.peerDependencies[name].split('||').map(value => value.trim()).filter(version => published.has(version))
+    pkg.peerDependencies[name] = [...declared, '0.2.0'].join(' || ')
+  }
   assert.ok(declaredHostVersions(sourcePolicy).includes('0.2.0'))
   assert.ok(!validatePackageCompatibility(pkg, sourcePolicy).includes('0.2.0'))
   const matrix = spawnSync(process.execPath, [fileURLToPath(new URL('./compatibility.mjs', import.meta.url)), '--github-output'], { encoding: 'utf8' })

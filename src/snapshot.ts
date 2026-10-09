@@ -28,6 +28,8 @@ export interface TeamActivityMember {
   readonly role: string
   readonly provider: string
   readonly model: string
+  readonly emergencyFallback?: { readonly provider: string; readonly model: string }
+  readonly fallbackActive?: boolean
   readonly reasoningEffort: string
   readonly executionPrompt: string
   readonly status: MemberStatus
@@ -143,9 +145,11 @@ export async function assembleTeamSnapshot(
       id: member.id,
       name: member.name,
       role: member.role ?? '',
-      provider: member.provider?.trim() ?? '',
-      model: member.model?.trim() ?? '',
-      reasoningEffort: member.reasoningEffort?.trim() ?? '',
+      provider: (member.activeProvider ?? member.provider)?.trim() ?? '',
+      model: (member.activeModel ?? member.model)?.trim() ?? '',
+      emergencyFallback: member.emergencyFallback,
+      fallbackActive: member.fallbackActive,
+      reasoningEffort: member.fallbackActive === true ? '' : member.reasoningEffort?.trim() ?? '',
       executionPrompt: member.executionPrompt ?? '',
       status: member.status,
       activity: options.historic === true

@@ -5,10 +5,12 @@ export const TEAM_TOOL_NAMES = [
   'agent_teams_reassign_task', 'agent_teams_claim_task', 'agent_teams_update_task',
   'agent_teams_amend_task',
   'agent_teams_send_message', 'agent_teams_status', 'agent_teams_resume', 'agent_teams_delete',
+  'agent_teams_batch_files',
 ] as const
 
 export const MEMBER_TOOL_NAMES: readonly string[] = [
   'agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status',
+  'agent_teams_batch_files',
 ]
 
 export const CAPTAIN_TOOL_NAMES = TEAM_TOOL_NAMES.filter(name => !MEMBER_TOOL_NAMES.includes(name))

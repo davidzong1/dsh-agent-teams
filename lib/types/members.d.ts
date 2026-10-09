@@ -75,6 +75,17 @@ export interface MemberSelectionRuntime {
  * catch a typo that would otherwise boot a child and fail on its first turn.
  */
 export declare function validateMemberLlmSelections(ctx: Context, selections: readonly MemberLlmSelection[], signal?: AbortSignal): Promise<void>;
+/** One-shot file workers. This prefix never marks a continuable team member. */
+export declare const EPHEMERAL_FILE_BATCH_LABEL = "agent-teams-batch:";
+/** A member start that may pass the depth gate: one-shot, depth 0, file tools only. */
+export declare function isEphemeralFileBatchRequest(request: {
+    label?: string;
+    maxDepth?: number;
+    toolFilter?: {
+        allow?: readonly string[];
+    };
+}): boolean;
+export declare function isNetworkFailureCode(code: string, message?: string): boolean;
 export declare function isFallbackFailureCode(code: string): boolean;
 /** Pure state transition used by the request-error handler and TDD tests. */
 export declare function selectFallbackRoute(current: {
@@ -98,7 +109,7 @@ interface FailedMemberAttempt {
     readonly memberId: string;
     readonly task?: Pick<TeamTask, 'id' | 'attempt' | 'attemptId'>;
 }
-/** Record a final turn failure, never an intermediate request retry. */
+/** Park a final interrupted turn; only explicit task updates can fail work. */
 export declare function failMemberOpenAttempt(ctx: Context, stateRoot: string, teamId: string, memberName: string, failure: {
     readonly code: string;
     readonly message: string;

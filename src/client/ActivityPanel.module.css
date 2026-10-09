@@ -2235,3 +2235,29 @@
 .team[data-workspace-team] .dagOwner { white-space: nowrap; max-width: 105px; }
 /* The page scrolls as a whole; an overlay approval bar would cover form saves. */
 .team[data-workspace-team] .planApproveRow { position: static; }
+
+.emergencyEditor {
+  margin: 4px 12px 8px 32px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  font-size: 12px;
+}
+.emergencyEditor summary { cursor: pointer; font-weight: 600; }
+.emergencyEditor p { margin: 6px 0; overflow-wrap: anywhere; }
+.emergencyEditor label { display: grid; gap: 6px; margin-top: 10px; }
+.emergencyEditor select {
+  width: 100%; min-width: 0; padding: 7px 8px;
+  color: inherit; background: var(--dsw-alias-bg-base);
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
+}
+.emergencyEditor button {
+  margin: 8px 8px 0 0; padding: 6px 12px; cursor: pointer;
+  color: inherit; background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px;
+}
+.emergencyEditor select:focus-visible, .emergencyEditor button:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px;
+}
+.emergencyEditor button:disabled { cursor: default; opacity: .5; }

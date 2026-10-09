@@ -301,8 +301,7 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
         }
       })()
     }, 60_000)
-    const unref = (timer as unknown as { unref?: () => void }).unref
-    unref?.()
+    timer.unref?.()
     blockedRetryTimers.set(key, timer)
   }
 
@@ -358,12 +357,6 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
         if (captain === undefined) return
         let member = team.members.find(candidate => candidate.name === memberName && candidate.status !== 'removed')
         if (member === undefined || !isMemberAvailable(ctx, member)) return
-        const blocked = team.tasks.find((task) => task.assignee === memberName && task.status === 'blocked')
-        if (blocked !== undefined) {
-          if (blocked.blockedRetryable === true) scheduleBlockedRetry(workspace, teamId, memberName, captain)
-          return
-        }
-
         // A mailbox-only fallback is real pending work. Deliver it before a
         // fresh task and acknowledge only after Harness accepts the follow-up.
         const unread = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
@@ -390,6 +383,12 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
               releaseMailboxDelivery(stateRoot, team!.id, member!.name, unread.map(message => message.id))
             ))
           }
+          return
+        }
+
+        const blocked = team.tasks.find((task) => task.assignee === memberName && task.status === 'blocked')
+        if (blocked !== undefined) {
+          if (blocked.blockedRetryable === true) scheduleBlockedRetry(workspace, teamId, memberName, captain)
           return
         }
 

@@ -168,6 +168,8 @@ Defaults work without extra setup. A trusted profile can override member behavio
 
 `slashCommand: false` disables the deterministic `/agent-teams` activation surfaces (slash command and gesture boundary), leaving the natural-language trigger as the only entry point.
 
+In the captain's Web **View team** panel, expand the member list and open **Member emergency model** to select, save, or clear a provider/model from the configured model directory. Running members read edits on their next quota failure (`QUOTA` or `ACCOUNT_QUOTA`), switch to the emergency route, and retry the current request with the same session and task attempt. The emergency route must differ from the active route and uses the target model's default reasoning effort. Both the configuration and active route survive cold recovery. Configuration is also available before startup; stopped and archived teams are read-only. Saving a configuration does not start work or retry already-failed tasks.
+
 ## Boundaries
 
 - One captain leads one active team at a time.

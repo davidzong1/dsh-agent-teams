@@ -38,7 +38,8 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { collectArchivedTeamsActivity, collectTeamsActivity } from './snapshot.ts'
-import { findTeamByCaptain } from './state.ts'
+import { findTeamByCaptain, readTeam, withTeamLock, writeTeam } from './state.ts'
+import { validateMemberLlmSelections } from './members.ts'
 import { formatProfilesForPrompt, type TeamProfileConfig } from './profiles.ts'
 import { installTeamCapabilities } from './capabilities.ts'
 import { TEAM_TOOL_NAMES } from './tool-names.ts'
@@ -137,7 +138,7 @@ export const Config: z<Config> = z.object({
 /** The model-facing usage policy: when and how to drive AgentTeams. */
 export function usageSectionText(toolNames: string, profilesText = ''): string {
   return `AgentTeams captain protocol:
-1. Inspect current team state when needed, using agent_teams_status. Continue existing work without duplicating its roster/tasks. Create only when no current team exists, with the user's goal as description and approval="required"; automatic approval requires an explicit request to run immediately. Staged plans never spawn or schedule work. When a running team already exists and the user requests actionable new work, create the follow-up with agent_teams_create_task in this same turn before investigating unrelated worktree changes; do not wait for another turn or create a replacement team.
+1. For a new /agent-teams request, your first AgentTeams tool call must be agent_teams_status. If it returns "you do not lead or belong to any active team yet", immediately call agent_teams_create with approval="required" in the next tool call. Do not call bash, read, grep, search, or inspect repository files before creating that staged team; do not perform roster or DAG reconnaissance before create. Use the referenced plan after the staged team exists. Continue existing work without duplicating its roster/tasks. Create only when no current team exists, with the user's goal as description and approval="required"; automatic approval requires an explicit request to run immediately. Staged plans never spawn or schedule work. When a running team already exists and the user requests actionable new work, create the follow-up with agent_teams_create_task in this same turn before investigating unrelated worktree changes; do not wait for another turn or create a replacement team.
 2. Add each needed role once; members inherit your model route unless another is requested/needed. A requested profile goes to create({profile}); it supplies its roster. Seed profiles also supply tasks; captain-planning profiles require your DAG. Do not duplicate either.
 3. Build the complete smallest useful DAG while staged. For an ordinary research/audit plan, pass the roster and dependency graph together in create({plan:{members,tasks}}) to avoid repeated setup rounds. Every task needs a subject; pass kind and assignee explicitly when the plan specifies them. Titles, descriptions and member roles do not set these fields. Dependencies represent prerequisites. Present a newly staged plan and end your turn for review; never approve in that planning turn. This staged-plan pause does not apply to a running team's user-requested follow-up: call agent_teams_create_task before ending the current turn. Approve only after a later explicit user approval or the Web action.
 4. Respect Web approve/return/discard control messages. On return, ask what to change before editing; after the answer, use one atomic agent_teams_edit_plan batch (edit downstream references before removals), summarize and await review again. Never inspect or edit .agent-teams state files or plugin source code to revise plans. Discard does not authorize a replacement.
@@ -288,6 +289,70 @@ export function apply(ctx: Context, config: Config): void {
         }
       },
     }), 'agent-teams: halt route')
+
+    ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-agent-teams/member-emergency',
+      handler: async (req, res) => {
+        const reply = (status: number, body: unknown): void => {
+          res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify(body))
+        }
+        if (req.method !== 'POST') {
+          res.setHeader('allow', 'POST')
+          reply(405, { error: 'POST required' })
+          return
+        }
+        try {
+          const payload = await readJsonRequest(req)
+          const { sessionId, teamId, memberId, memberName, emergencyFallback } = payload
+          if (![sessionId, teamId, memberName].every(value => typeof value === 'string' && value.trim() !== '')
+            || typeof memberId !== 'string') throw new RequestBodyError('sessionId, teamId, memberId and memberName are required', 400)
+          const captain = ctx.agents.get(sessionId as import('@deepseek-ai/dsh-session').SessionId)
+          if (captain === undefined) { reply(409, { error: 'captain session is not attached' }); return }
+          const stateRoot = join(captain.session.header.cwd ?? process.cwd(), resolved.stateDir)
+          const owner = await findTeamByCaptain(stateRoot, captain.id)
+          if (owner === undefined || owner.id !== teamId) { reply(404, { error: 'team not found for this captain' }); return }
+          let route: { provider: string; model: string } | undefined
+          if (emergencyFallback !== null) {
+            if (typeof emergencyFallback !== 'object' || emergencyFallback === undefined || Array.isArray(emergencyFallback)) {
+              throw new RequestBodyError('emergencyFallback must be a provider/model object or null', 400)
+            }
+            const value = emergencyFallback as Record<string, unknown>
+            if (typeof value.provider !== 'string' || value.provider.trim() === '' || typeof value.model !== 'string' || value.model.trim() === '') {
+              throw new RequestBodyError('provider and model are required', 400)
+            }
+            route = { provider: value.provider.trim(), model: value.model.trim() }
+            try {
+              const resolvedRoute = await ctx.llm.resolveCallConfig(route)
+              route = { provider: resolvedRoute.provider, model: resolvedRoute.model }
+              await validateMemberLlmSelections(ctx, [route])
+            } catch {
+              throw new RequestBodyError('emergency provider/model is unavailable', 400)
+            }
+          }
+          const result = await withTeamLock(`team:${stateRoot}:${owner.id}`, async () => {
+            const team = await readTeam(stateRoot, owner.id)
+            const member = team?.members.find(item => item.name === memberName && item.id === memberId && item.status !== 'removed')
+            if (team?.captainSessionId !== captain.id || team.halted === true || member === undefined || member.stopping === true) return undefined
+            if (route !== undefined && route.provider === (member.activeProvider ?? member.provider)
+              && route.model === (member.activeModel ?? member.model)) throw new RequestBodyError('emergency route must differ from the active route', 400)
+            if (route === undefined) delete member.emergencyFallback
+            else member.emergencyFallback = route
+            await writeTeam(stateRoot, team)
+            return { emergencyFallback: member.emergencyFallback ?? null }
+          })
+          if (result === undefined) reply(409, { error: 'member is no longer available' })
+          else reply(200, result)
+        } catch (error: unknown) {
+          if (error instanceof RequestBodyError) reply(error.status, { error: error.message })
+          else {
+            ctx.logger.warn(`agent-teams: emergency configuration failed: ${String(error)}`)
+            reply(500, { error: 'failed to save emergency configuration' })
+          }
+        }
+      },
+    }), 'agent-teams: member emergency route')
 
     ctx.effect(() => webServer.register({
       kind: 'exact',

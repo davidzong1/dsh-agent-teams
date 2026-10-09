@@ -23,7 +23,7 @@ async function eventually(predicate) {
   assert.fail('terminal failure did not settle')
 }
 
-async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = false, rejectDelivery = false } = {}) {
+async function fixture(t, { captainStatus = 'idle', fallback, emergencyFallback, captainOffline = false, rejectDelivery = false } = {}) {
   const workspace = await mkdtemp(join(tmpdir(), 'dsh-member-failure-'))
   const pendingFailures = []
   let settleOnCleanup = () => {}
@@ -63,7 +63,8 @@ async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = f
   }
   await createTeamDir(stateRoot, {
     id: 'team', name: 'Team', captainSessionId: captain.id, createdAt: 1, taskSeq: 1,
-    members: [{ id: child.id, name: 'worker', status: 'working', joinedAt: 1, provider: 'fake', model: 'primary' }],
+    members: [{ id: child.id, name: 'worker', status: 'working', joinedAt: 1, provider: 'fake', model: 'primary',
+      ...(emergencyFallback === undefined ? {} : { emergencyFallback }) }],
     tasks: [{ id: 't1', subject: 'work', assignee: 'worker', status: 'in_progress', dependencies: [], attempt: 1, attemptId: 'a1', createdAt: 1, updatedAt: 1 }],
   })
   let setup
@@ -103,14 +104,15 @@ async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = f
   const runtime = installMemberSelectionRuntime(ctx, '.agent-teams', (workspace, teamId, memberName) => (
     scheduler.kickMember(workspace, teamId, memberName)
   ))
-  const dispose = await runtime.withPending(captain.id, 'agent-teams:team:worker', {
-    provider: 'fake', model: 'primary', ...fallback ? { fallback } : {},
-  }, () => setup({
+  const childContext = {
     agent: child,
     effect(setup) { const dispose = setup(); disposers.push(dispose); return dispose },
     on(name, listener) { listeners.set(name, listener); return () => listeners.delete(name) },
-  }))
-  t.after(dispose)
+  }
+  let dispose = await runtime.withPending(captain.id, 'agent-teams:team:worker', {
+    provider: 'fake', model: 'primary', ...fallback ? { fallback } : {},
+  }, () => setup(childContext))
+  t.after(() => dispose())
   let retryHandler
   let projection
   let retryState = {}
@@ -141,6 +143,15 @@ async function fixture(t, { captainStatus = 'idle', fallback, captainOffline = f
   return {
     workspace, stateRoot, scheduler, captain, steers, deliveries, warnings, listeners, child, sessionEvents, memberError, payload, settleSilently,
     state: () => readTeam(stateRoot, 'team'),
+    async route({ assemble = true } = {}) {
+      if (assemble) await listeners.get('system-prompt/assemble')({}, {}, async () => ({ variables: {} }))
+      return listeners.get('agent/request')({}, async () => ({provider:'fake', model:'primary', reasoningEffort:'high'}))
+    },
+    coldResume() {
+      dispose()
+      installMemberSelectionRuntime(ctx, '.agent-teams')
+      dispose = setup(childContext)
+    },
     mailbox: () => readMailbox(stateRoot, 'team', 'captain'),
     unread: () => readUnreadMailbox(stateRoot, 'team', 'captain'),
     retry: (policy, code) => { const value = payload(policy, code); return retryHandler(value, () => memberError(value)) },
@@ -176,6 +187,61 @@ await test('fallback recovers once and exhausted fallback still delegates withou
   assert.deepEqual(await h.memberError(h.payload(undefined, 'AUTH')), { kind: 'retry' })
   assert.deepEqual(await h.memberError(h.payload(undefined, 'RATE_LIMIT'), async () => ({ kind: 'retry' })), { kind: 'retry' })
   assert.equal((await h.state()).tasks[0].status, 'in_progress')
+})
+
+await test('quota exhaustion switches to the member emergency route and persists the active route', async t => {
+  const emergency = { provider: 'backup', model: 'quota-safe' }
+  const h = await fixture(t, { emergencyFallback: emergency })
+  assert.equal((await h.route()).model, 'primary')
+  assert.deepEqual(await h.memberError(h.payload(undefined, 'ACCOUNT_QUOTA')), { kind: 'retry' })
+  assert.deepEqual(await h.route({assemble:false}), emergency, 'retry must replace the route captured before quota failure and clear inherited effort')
+  const member = (await h.state()).members[0]
+  assert.deepEqual({ provider: member.activeProvider, model: member.activeModel }, emergency)
+  assert.equal(member.fallbackActive, true)
+  assert.equal((await h.state()).tasks[0].status, 'in_progress')
+  let delegated = 0
+  assert.equal(await h.memberError(h.payload(undefined, 'QUOTA'), async () => { delegated++; return undefined }), undefined)
+  assert.equal(delegated, 1, 'an exhausted emergency route must delegate rather than loop')
+  h.coldResume()
+  assert.deepEqual(await h.route(), emergency, 'a cold member must retain the durable emergency route')
+})
+
+await test('running member reads dynamic emergency edits on the next quota error', async t => {
+  const h = await fixture(t, { fallback: { provider: 'normal-backup', model: 'secondary' } })
+  const emergency = { provider: 'backup', model: 'quota-safe' }
+  await withTeamLock(`team:${h.stateRoot}:team`, async () => {
+    const team = await h.state()
+    team.members[0].emergencyFallback = emergency
+    await writeTeam(h.stateRoot, team)
+  })
+  assert.deepEqual(await h.memberError(h.payload(undefined, 'QUOTA')), { kind: 'retry' })
+  assert.equal((await h.state()).members[0].activeModel, emergency.model, 'quota-only route takes precedence')
+  const replacement = { provider: 'other', model: 'new-backup' }
+  await withTeamLock(`team:${h.stateRoot}:team`, async () => {
+    const team = await h.state()
+    team.members[0].emergencyFallback = replacement
+    await writeTeam(h.stateRoot, team)
+  })
+  assert.deepEqual(await h.memberError(h.payload(undefined, 'ACCOUNT_QUOTA')), { kind: 'retry' })
+  assert.equal((await h.state()).members[0].activeModel, replacement.model)
+})
+
+await test('emergency route ignores non-quota errors and aborted requests', async t => {
+  const h = await fixture(t, { emergencyFallback: { provider: 'backup', model: 'quota-safe' } })
+  for (const code of ['RATE_LIMIT', 'AUTH', 'CONTEXT_WINDOW_EXCEEDED']) {
+    assert.equal(await h.memberError(h.payload(undefined, code)), undefined)
+  }
+  const abort = new AbortController()
+  abort.abort()
+  assert.equal(await h.memberError(h.payload(undefined, 'QUOTA', abort.signal)), undefined)
+  assert.equal((await h.state()).members[0].activeModel, undefined)
+  assert.deepEqual(await h.memberError(h.payload(undefined, 'QUOTA')), { kind: 'retry' })
+})
+
+await test('same-route emergency configuration cannot authorize a retry', async t => {
+  const h = await fixture(t, { emergencyFallback: { provider: 'fake', model: 'primary' } })
+  assert.equal(await h.memberError(h.payload(undefined, 'QUOTA')), undefined)
+  assert.equal((await h.state()).members[0].fallbackActive, undefined)
 })
 
 await test('aborted request does not fail a task or consume its fallback route', async t => {

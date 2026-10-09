@@ -60,6 +60,7 @@ import {
 } from './activity-monitor.ts'
 import { ACTION_ART, LEAD_ART, memberArtUrl } from './artwork.ts'
 import { OPEN_PANEL_EVENT } from './AgentTeamsCard.tsx'
+import { MemberEmergencyEditor } from './MemberEmergencyEditor.tsx'
 import { StagingPlanEditor } from './StagingPlanEditor.tsx'
 import type { AgentTeamsCardData } from './agent-teams-card-definition.ts'
 import type { AgentTeamsLocaleKey, AgentTeamsTranslate } from './locales.ts'
@@ -712,6 +713,9 @@ export function TeamSection({ team, modelDirectory, onContinuePlanning, onDiscar
                   </span>
                   <span className={css.memberCount}>{member.done}/{member.total}</span>
                 </button>
+                {!historic && !stopped && modelDirectory !== undefined && (
+                  <MemberEmergencyEditor key={`${team.teamId}:${member.id}:${member.name}`} team={team} member={member} directory={modelDirectory} t={t} />
+                )}
                 <div className={css.assignmentLine}>
                   <span className={css.assignmentLabel}>{t(discarded
                     ? 'assignment.discarded'
@@ -1280,9 +1284,7 @@ export function ActivityPanel({ sessionsList, modelDirectories, openMember, t, c
                     <TeamSection
                       key={team.teamId}
                       team={team}
-                      modelDirectory={team.phase === 'staged'
-                        ? modelDirectories.directoryFor(team.captainSessionId as SessionId)
-                        : undefined}
+                      modelDirectory={modelDirectories.directoryFor(team.captainSessionId as SessionId)}
                       onContinuePlanning={returnToComposer}
                       onDiscarded={returnToComposer}
                       onNavigate={navigateToSession}
