@@ -77,6 +77,8 @@ import { collectCompletedDependencyOutputs, formatDependencyOutputs, installTeam
 import { installMailboxAdmission, isCurrentMail, mailboxContent, mailboxPrompt, readCurrentMailbox } from './mailbox.ts'
 import { resolveTeamProfile } from './profiles.ts'
 import { normalizeFileBatch, runEphemeralFileBatch } from './batch-files.ts'
+import { installCaptainGoalPolicy } from './captain-goal.ts'
+import { installMemberTaskGoal } from './member-goal.ts'
 import type { FileBatchItem } from './batch-files.ts'
 
 export { steerCaptainReport } from './members.ts'
@@ -434,6 +436,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
   installRetiredMemberGuard(ctx, config.stateDir)
   installMemberDelegationGuard(ctx, config.stateDir, config.memberMaxDepth ?? 0)
   installMailboxAdmission(ctx, config.stateDir)
+  const captainGoals = installCaptainGoalPolicy(ctx, config.stateDir)
   const scheduler = installTeamScheduler(ctx, { stateDir: config.stateDir, executionPrompt: config.executionPrompt, dispatch: dispatchMember })
   const memberSelections = installMemberSelectionRuntime(ctx, config.stateDir, (workspace, teamId, memberName) => (
     scheduler.kickMember(workspace, teamId, memberName)
@@ -722,7 +725,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
 
   ctx.tools.register(defineTool({
     name: 'agent_teams_create',
-    description: 'Create a team. Use approval=required for a two-phase plan: members and tasks remain unspawned/unclaimed until the user reviews the Web plan and explicitly approves it. Optional profiles expand their configured roster; seed profiles also expand template tasks, while captain profiles leave the graph for the Captain to design. approval=automatic preserves the legacy immediate-execution path.',
+    description: 'Create a team. Use approval=required for a two-phase plan: members and tasks remain unspawned/unclaimed until the user reviews the Web plan and explicitly approves it. Optional profiles expand their configured roster; seed profiles also expand template tasks, while captain profiles leave the graph for the Captain to design. approval=automatic preserves the legacy immediate-execution path. A non-empty description is installed as this captain session\'s /goal.',
     parameters: {
       name: { type: 'string', required: true, description: 'Name for the new team (used as its stable id).' },
       description: { type: 'string', description: 'Team purpose / the goal the team will work on.' },
@@ -832,6 +835,12 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
         })
       })
       if (created.committed) {
+        try {
+          captainGoals.noteCaptain(captain.id)
+          installMemberTaskGoal(ctx, captain, created.state.description?.trim() ?? '', { arm: false })
+        } catch (error: unknown) {
+          ctx.logger.warn(`agent-teams: could not install the captain /goal for "${created.state.id}": ${String(error)}`)
+        }
         try {
           await scheduler.kickTeam(workspace, created.state.id, captain)
         } catch (error: unknown) {

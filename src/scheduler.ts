@@ -17,6 +17,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import { deliverToMember } from './members.ts'
+import { installMemberTaskGoal, memberTaskObjective } from './member-goal.ts'
 import { isCurrentMail, mailboxPrompt } from './mailbox.ts'
 import {
   markMailboxDelivered,
@@ -260,6 +261,8 @@ Completed dependency results:
 ${formatDependencyOutputs(ticket.dependencyOutputs)}
 
 Task: ${ticket.taskId}${seed} — ${ticket.subject}${description}
+This task objective is your session /goal: ${memberTaskObjective(ticket)}
+Finish the team task with its attempt_id, then mark that goal complete.
 ${contract === '' ? '' : `\nContract:\n${contract}\n`}
 ${structuredCompletion}
 Attempt: ${ticket.attempt}
@@ -477,7 +480,17 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
         const accepted = config.dispatch === undefined
           ? await deliverToMember(ctx, captain, ticket.memberId, prompt, signal)
           : await config.dispatch(captain, team.id, ticket.memberName, prompt, signal, 'queue', ticket.attemptId)
-        if (accepted) return
+        if (accepted) {
+          const live = ctx.agents.get(ticket.memberId as SessionId)
+          if (live !== undefined) {
+            try {
+              installMemberTaskGoal(ctx, live, memberTaskObjective(ticket))
+            } catch (error: unknown) {
+              ctx.logger.warn(`agent-teams: could not install /goal for ${ticket.memberName}: ${String(error)}`)
+            }
+          }
+          return
+        }
 
         // Roll back only our exact failed dispatch. A concurrent captain
         // handoff has already changed the capability and wins.
