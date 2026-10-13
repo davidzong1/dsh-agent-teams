@@ -155,6 +155,9 @@ const ctx = {
       definitions.set(definition.name, definition)
     },
   },
+  // Service access mirrors the Harness Context: the plugin's optional /goal
+  // integration reads `goals` here, and this harness does not mount one.
+  get() { return undefined },
   on(name, listener) {
     const current = listeners.get(name) ?? []
     current.push(listener)
@@ -423,7 +426,7 @@ check('slash --profile without a goal still activates',
 check('profile-only activation asks for the goal',
   buildActivationDirective('', 'demo-delivery').includes('The goal was not given')
     && buildActivationDirective('', 'demo-delivery').includes('Use profile="demo-delivery" when creating a new team')
-    && buildActivationDirective('', 'demo-delivery').includes('Inspect existing team state with agent_teams_status'))
+    && buildActivationDirective('', 'demo-delivery').includes('your first AgentTeams tool call must be agent_teams_status'))
 check('captain-planning activation requires a staged user-reviewed graph',
   buildActivationDirective('ship it', 'dynamic-delivery', 'captain').includes('approval="required"')
     && buildActivationDirective('ship it', 'dynamic-delivery', 'captain').includes('review the Web plan')
