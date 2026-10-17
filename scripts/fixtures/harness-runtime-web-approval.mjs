@@ -207,8 +207,8 @@ export function apply(ctx) {
         assert.ok(captainRequests.every(request => sha256(JSON.stringify(request.tools ?? [])) === toolsSha256), 'Captain tool schemas must remain stable across the complete Web workflow');
         const memberRequests = events.filter(event => event.event === 'web-request' && event.isMember);
         assert.ok(memberRequests.length > 0);
-        const memberTools = ['agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status'].sort();
-        for (const request of memberRequests) assert.deepEqual(request.tools.filter(tool => tool.name.startsWith('agent_teams_')).map(tool => tool.name).sort(), memberTools, 'Every real member request must expose exactly the four member tools');
+        const memberTools = ['agent_teams_claim_task', 'agent_teams_update_task', 'agent_teams_send_message', 'agent_teams_status', 'agent_teams_batch_files'].sort();
+        for (const request of memberRequests) assert.deepEqual(request.tools.filter(tool => tool.name.startsWith('agent_teams_')).map(tool => tool.name).sort(), memberTools, 'Every real member request must expose exactly the five member tools');
         record({ event: 'web-headers-stable', sessionId: captain.id, systemSha256, toolsSha256, captainRequests: captainRequests.length, memberRequests: memberRequests.length, memberTeamToolCount: memberTools.length });
         record({ event: 'web-approval-passed', sessionId: captain.id, teamId: completed.id, memberId: completed.members[0].id, taskStatus: completed.tasks[0].status, captainRequests: captainRequests.length });
         process.stdout.write('WEB_APPROVAL_OK\n');
