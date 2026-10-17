@@ -16,6 +16,38 @@ const FILE_TOOLS = ['read', 'write', 'edit'] as const
 const MAX_FILES = 8
 const MAX_PARALLEL = 4
 
+/**
+ * The one-shot `subagents.start` contract these workers were built on. Harness
+ * 0.2.1-alpha hosts advertise `toolFilter`/`depthLimit`/`persona` and accept
+ * them in the start request; rc.1 replaced `start()` with managed activations
+ * and dropped those start-time options, so the capability gate below rejects
+ * the feature there instead of silently starting an unrestricted child.
+ */
+interface OneShotCapabilities {
+  toolFilter?: boolean
+  depthLimit?: boolean
+  persona?: boolean
+}
+
+interface OneShotStartRequest {
+  label: string
+  parent: Agent
+  signal: AbortSignal
+  maxDepth: number
+  toolFilter: { allow: string[] }
+  persona: string
+  prompt: ContentBlock[]
+}
+
+interface OneShotRun {
+  result: Promise<{ stopReason: string; output: readonly ContentBlock[] }>
+  dispose(): Promise<void>
+}
+
+interface OneShotBoundary {
+  start?: (name: string, request: OneShotStartRequest) => Promise<OneShotRun>
+}
+
 export interface FileBatchItem {
   path: string
   operation: 'read' | 'write' | 'summarize'
@@ -71,7 +103,8 @@ export async function runEphemeralFileBatch(
 ): Promise<FileBatchResult[]> {
   const provider = ctx.subagents.getProvider(providerName)
   if (provider === undefined) throw new Error(`agent-teams: no subagent provider "${providerName}" is registered`)
-  if (!provider.capabilities.toolFilter || !provider.capabilities.depthLimit || !provider.capabilities.persona) {
+  const capabilities = provider.capabilities as unknown as OneShotCapabilities
+  if (!capabilities.toolFilter || !capabilities.depthLimit || !capabilities.persona) {
     throw new Error(`agent-teams: provider "${providerName}" cannot start a temporary file-only worker`)
   }
   const allow = fileToolsFor(parent)
@@ -109,7 +142,11 @@ async function runOne(
   allow: readonly string[],
   signal: AbortSignal,
 ): Promise<FileBatchResult> {
-  const run = await ctx.subagents.start(providerName, {
+  const boundary = ctx.subagents as unknown as OneShotBoundary
+  if (typeof boundary.start !== 'function') {
+    throw new Error('agent-teams: this Harness version does not expose the one-shot subagent start API required for temporary file workers')
+  }
+  const run = await boundary.start.call(ctx.subagents, providerName, {
     label: `${EPHEMERAL_FILE_BATCH_LABEL}${teamId}:${memberName}:${index}`,
     parent,
     signal,
