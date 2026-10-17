@@ -92,7 +92,7 @@ import { installMailboxAdmission, isCurrentMail, mailboxContent, mailboxPrompt, 
 import { resolveTeamProfile } from './profiles.ts'
 import { normalizeFileBatch, runEphemeralFileBatch } from './batch-files.ts'
 import { installCaptainGoalPolicy } from './captain-goal.ts'
-import { installMemberTaskGoal } from './member-goal.ts'
+import { installMemberTaskGoal, memberTaskObjective, releaseMemberTaskGoal } from './member-goal.ts'
 import type { FileBatchItem } from './batch-files.ts'
 import { forkLineageNote, leadIdentityOf, leadIdentityOfAsync, nearestLiveLead, sessionLeadsTeam, sessionLeadsTeamAsync } from './lineage.ts'
 
@@ -2002,6 +2002,7 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
       const stateRoot = stateRootOf(workspace, config)
       const team = await requireParticipantTeam(ctx, workspace, config, caller)
       let followUpMessage: import('./types.ts').TeamMessage | undefined
+      let releaseGoal: { memberId: string; objective: string } | undefined
       const updated = await withTeamLock(teamLockKey(stateRoot, team.id), async () => {
         const { team: fresh, identity } = await requireFreshParticipant(ctx, stateRoot, team.id, caller.id)
         const task = requireTask(fresh, args.task_id)
@@ -2097,6 +2098,14 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           ))
         }
         await writeTeam(stateRoot, fresh)
+        if ((args.status === 'completed' || args.status === 'failed' || args.status === 'cancelled') && task.status === args.status) {
+          const ownerId = identity.kind === 'member'
+            ? caller.id
+            : fresh.members.find(item => item.name === task.assignee && item.status !== 'removed' && item.id !== '')?.id
+          if (ownerId !== undefined && ownerId !== fresh.captainSessionId) {
+            releaseGoal = { memberId: ownerId, objective: memberTaskObjective(task) }
+          }
+        }
         if (followUpMessage !== undefined) await appendMailbox(stateRoot, fresh.id, CAPTAIN_KEY, followUpMessage)
         appendTeamEvent(ctx, captainSessionOf(ctx, fresh.captainSessionId, caller.session), 'agent-teams/task-updated', {
           teamId: fresh.id,
@@ -2127,6 +2136,16 @@ export function registerAgentTeamsTools(ctx: Context, config: ToolsConfig): Agen
           ...task.output !== undefined ? { output: task.output } : {},
         }
       })
+      if (releaseGoal !== undefined) {
+        const live = ctx.agents.get(releaseGoal.memberId as SessionId)
+        if (live !== undefined) {
+          try {
+            releaseMemberTaskGoal(ctx, live, releaseGoal.objective)
+          } catch (error: unknown) {
+            ctx.logger.warn(`agent-teams: could not clear /goal after ${updated.status} for ${releaseGoal.memberId}: ${String(error)}`)
+          }
+        }
+      }
       if (followUpMessage !== undefined) {
         const captain = nearestLiveLead(ctx, team)
         if (captain !== undefined && steerCaptainReport(captain, CAPTAIN_KEY, followUpMessage.content, mailboxPrompt(team.id, CAPTAIN_KEY, [followUpMessage]))) {

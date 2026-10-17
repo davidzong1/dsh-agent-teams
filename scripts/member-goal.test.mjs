@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { installMemberTaskGoal, memberTaskObjective } from '../lib/member-goal.js'
+import { finishedGoalMatches, installMemberTaskGoal, memberTaskObjective, releaseFinishedMemberGoal, releaseMemberTaskGoal } from '../lib/member-goal.js'
 
 test('task objective prefers the explicit objective, then subject and description', () => {
   assert.equal(memberTaskObjective({ subject: 'Title', objective: ' Ship it ' }), 'Ship it')
@@ -55,4 +55,49 @@ test('installs a fresh goal and replaces a different current goal', () => {
   api.current = undefined
   installMemberTaskGoal(ctx, member, 'passive', { arm: false })
   assert.deepEqual(goals.slice(-2), [['create', 'passive'], ['disarm']])
+})
+
+test('a failed task clears only the matching member goal', () => {
+  const member = { id: 'member' }
+  const calls = []
+  const api = {
+    current: { id: 'goal-1', revision: 4, phase: 'active', activation: 'armed', objective: 'Ship it' },
+    get() { return this.current },
+    clear(_agent, ref) {
+      calls.push(['clear', ref.id, ref.revision])
+      this.current = undefined
+      return { id: ref.id, revision: ref.revision + 1 }
+    },
+  }
+  const ctx = { get(name) { return name === 'goals' ? api : undefined } }
+  releaseMemberTaskGoal(ctx, member, 'Other work')
+  assert.equal(api.current.objective, 'Ship it')
+  releaseMemberTaskGoal(ctx, member, ' Ship it ')
+  assert.equal(api.current, undefined)
+  assert.deepEqual(calls, [['clear', 'goal-1', 4]])
+  releaseMemberTaskGoal(ctx, member, 'Ship it')
+  releaseMemberTaskGoal({ get() { return undefined } }, member, 'Ship it')
+  assert.deepEqual(calls, [['clear', 'goal-1', 4]])
+})
+
+test('an idle member drops a goal whose task is already complete', () => {
+  const task = { assignee: 'ada', status: 'completed', subject: 'Ship it' }
+  assert.equal(finishedGoalMatches([task], 'ada', 'Ship it'), true)
+  assert.equal(finishedGoalMatches([{ ...task, status: 'pending' }], 'ada', 'Ship it'), false)
+  assert.equal(finishedGoalMatches([task, { assignee: 'ada', status: 'pending', subject: 'Ship it' }], 'ada', 'Ship it'), false)
+  const member = { id: 'member' }
+  const calls = []
+  const api = {
+    current: { id: 'goal-1', revision: 2, phase: 'active', activation: 'armed', objective: 'Ship it' },
+    get() { return this.current },
+    clear(_agent, ref) {
+      calls.push(ref.id)
+      this.current = undefined
+      return { id: ref.id, revision: ref.revision + 1 }
+    },
+  }
+  assert.equal(releaseFinishedMemberGoal({ get(name) { return name === 'goals' ? api : undefined } }, member, [task], 'ada'), true)
+  assert.equal(api.current, undefined)
+  assert.deepEqual(calls, ['goal-1'])
+  assert.equal(releaseFinishedMemberGoal({ get(name) { return name === 'goals' ? api : undefined } }, member, [task], 'ada'), false)
 })

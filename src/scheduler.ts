@@ -17,7 +17,7 @@ import type { Agent, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import { deliverToMember } from './members.ts'
-import { installMemberTaskGoal, memberTaskObjective } from './member-goal.ts'
+import { installMemberTaskGoal, memberTaskObjective, releaseFinishedMemberGoal } from './member-goal.ts'
 import { isCurrentMail, mailboxPrompt } from './mailbox.ts'
 import {
   markMailboxDelivered,
@@ -274,7 +274,7 @@ ${formatDependencyOutputs(ticket.dependencyOutputs)}
 
 Task: ${ticket.taskId}${seed} — ${ticket.subject}${description}
 ${staleWorkOrder}This task objective is your session /goal: ${memberTaskObjective(ticket)}
-Finish the team task with its attempt_id, then mark that goal complete.
+Finish the team task with its attempt_id. Completing, failing, or cancelling it clears this /goal; stop after that terminal update.
 ${contract === '' ? '' : `\nContract:\n${contract}\n`}
 ${structuredCompletion}
 Attempt: ${ticket.attempt}
@@ -592,12 +592,16 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
       parkedAttempts.delete(agent.id)
       return
     }
+    let idleTasks: readonly TeamTask[] | undefined
+    let idleName: string | undefined
     await withTeamLock(teamLockKey(stateRoot, located.id), async () => {
       const fresh = await readTeam(stateRoot, located.id)
       const current = fresh?.members.find(candidate => candidate.id === agent.id && candidate.status !== 'removed')
       if (fresh === undefined || current === undefined) return
       const next = status === 'running' ? 'working' : 'idle'
       if (next === 'idle') {
+        idleTasks = fresh.tasks
+        idleName = current.name
         const owned = ownedOpenTask(fresh.tasks, current.name)
         if (owned?.attemptId === undefined) parkedAttempts.delete(agent.id)
         else parkedAttempts.set(agent.id, owned.attemptId)
@@ -608,6 +612,15 @@ export function installTeamScheduler(ctx: Context, config: SchedulerConfig): Tea
       current.status = next
       await writeTeam(stateRoot, fresh)
     })
+    if (idleTasks !== undefined && idleName !== undefined) {
+      try {
+        if (releaseFinishedMemberGoal(ctx, agent, idleTasks, idleName) && agent.status === 'running') {
+          agent.cancel({ kind: 'user' })
+        }
+      } catch (error: unknown) {
+        ctx.logger.warn(`agent-teams: could not clear the finished /goal for ${idleName}: ${String(error)}`)
+      }
+    }
     if (status === 'idle') await runtime.kickMember(workspace, located.id, member.name)
   }
 

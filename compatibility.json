@@ -38,6 +38,12 @@
   ],
   "sourceCandidates": [
     {
+      "version": "0.2.1-alpha.2",
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "commit": "942ec959b94352376346fb495b28bc1b840553a8",
+      "evidence": "docs/harness-0.2.1-alpha.2/README.md"
+    },
+    {
       "version": "0.2.1-alpha.1",
       "repository": "https://github.com/deepseek-ai/deepseek-harness",
       "commit": "0dd56c31b89d2b25997dcd0721d21cffd8a5584a",
